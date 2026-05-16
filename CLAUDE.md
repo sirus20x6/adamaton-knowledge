@@ -1,5 +1,11 @@
 # Agent instructions — adamaton-knowledge
 
+> **🚫 BLOCKING — never commit to `main` directly.** Adamaton's pre-commit hook hard-rejects commits to `main`/`master` from the canonical checkout. Always start with:
+> ```bash
+> cd /thearray/git/Adamaton && bin/adam claim 'knowledge'/<task>
+> ```
+> This creates a worktree on a feature branch where you can work freely. If you accidentally edited main, run `bin/adam rescue` from the umbrella to recover. See [umbrella CLAUDE.md](../CLAUDE.md) for the full agent workflow.
+
 Four Go modules (skills, skills-rae, reindex, r2g) + two Zig sidecars (latex2text, arxiv-skip). Owns the RAG / graphrag / memory data plane.
 
 ## Before you edit
