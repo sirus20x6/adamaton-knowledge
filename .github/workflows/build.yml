@@ -8,12 +8,12 @@ on:
 permissions:
   contents: read
   packages: write
-concurrency:
-  group: build-${{ github.ref }}-${{ matrix.service }}
-  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    concurrency:
+      group: build-${{ github.ref }}-${{ matrix.service }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
