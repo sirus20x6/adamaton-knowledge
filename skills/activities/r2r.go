@@ -18,7 +18,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills/workflows"
+	"github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
 // R2RActivities groups the activity methods that talk to the platform

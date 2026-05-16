@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/clusterclient"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/clusterclient"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 // ClusterDeps wraps the pool, the bge-m3 embedder, and the cluster-

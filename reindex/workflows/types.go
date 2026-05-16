@@ -1,6 +1,6 @@
 // Package workflows holds the Temporal workflow definitions for the
 // arxiv reindex subsystem. Activities live in
-// github.com/sirus20x6/adamomaton-knowledge/reindex/activities; the worker binary that
+// github.com/sirus20x6/adamaton-knowledge/reindex/activities; the worker binary that
 // registers them lives in cmd/reindex-worker.
 //
 // The two workflows mirror the bash loop in

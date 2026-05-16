@@ -1,6 +1,6 @@
 // Package workflows holds the Temporal workflow definitions for the
 // skills subsystem: R2R mirror sync, GitHub importers, and check-source
-// drift detection. Activities live in github.com/sirus20x6/adamomaton-knowledge/skills/activities;
+// drift detection. Activities live in github.com/sirus20x6/adamaton-knowledge/skills/activities;
 // the worker binary that registers them lives in cmd/skills-worker.
 //
 // Workflow IDs follow a deterministic naming scheme so callers (the

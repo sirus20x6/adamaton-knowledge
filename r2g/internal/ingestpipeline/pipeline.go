@@ -38,11 +38,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/chunking"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/figures"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/parsing"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/store"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/figures"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/parsing"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // Sentinel errors so HTTP handlers can translate to status codes without

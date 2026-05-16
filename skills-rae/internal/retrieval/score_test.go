@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 func TestProjectSubunitsToSkills_DegreeNormalization(t *testing.T) {

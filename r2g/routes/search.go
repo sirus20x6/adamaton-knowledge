@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/store"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // hybridEnabled toggles the BM25+vector RRF fusion path in store.

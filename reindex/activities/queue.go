@@ -17,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/temporal"
 
-	"github.com/sirus20x6/adamomaton-knowledge/reindex/workflows"
+	"github.com/sirus20x6/adamaton-knowledge/reindex/workflows"
 )
 
 // QueueActivities groups the two postgres-bound activities used by the

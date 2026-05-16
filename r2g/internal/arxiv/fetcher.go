@@ -31,7 +31,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/tarwalk"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/tarwalk"
 )
 
 const userAgent = "deepresearch-platform/0.1.0 (+r2g)"

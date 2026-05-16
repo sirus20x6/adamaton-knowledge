@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/extract"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/extract"
 )
 
 // PersistExtraction wipes any prior entities + relationships for the

@@ -1,4 +1,4 @@
-# adamomaton-knowledge
+# adamaton-knowledge
 
 RAG, graphrag, and skill-memory backends. Four Go modules + two Zig sidecars. Owns the schema for `evo.skills`, `evo.skill_communities`, `evo.insights`, plus corpora/documents/chunks/figures.
 
@@ -6,10 +6,10 @@ RAG, graphrag, and skill-memory backends. Four Go modules + two Zig sidecars. Ow
 
 | Dir | Module | Purpose |
 |---|---|---|
-| `skills/` | `adamomaton-knowledge/skills` | Skill-bank Temporal activities + workflows (skill ingestion, dedup, embedding) |
-| `skills-rae/` | `adamomaton-knowledge/skills-rae` | Retrieval-Augmented-Editor HTTP service. Listens on **:7376**. Endpoints: `/v1/rae/compile`, `/v1/rae/search`, `/v1/rae/communities`, `/v1/rae/skills/*` |
-| `reindex/` | `adamomaton-knowledge/reindex` | Periodic re-embed/community-detection worker. SQL in `reindex/sql/` |
-| `r2g/` | `adamomaton-knowledge/r2g` | Go port of R2R. HTTP `/v3/*` (replacing the Python R2R container). See `r2g/SURFACE.md` for the audited endpoint surface |
+| `skills/` | `adamaton-knowledge/skills` | Skill-bank Temporal activities + workflows (skill ingestion, dedup, embedding) |
+| `skills-rae/` | `adamaton-knowledge/skills-rae` | Retrieval-Augmented-Editor HTTP service. Listens on **:7376**. Endpoints: `/v1/rae/compile`, `/v1/rae/search`, `/v1/rae/communities`, `/v1/rae/skills/*` |
+| `reindex/` | `adamaton-knowledge/reindex` | Periodic re-embed/community-detection worker. SQL in `reindex/sql/` |
+| `r2g/` | `adamaton-knowledge/r2g` | Go port of R2R. HTTP `/v3/*` (replacing the Python R2R container). See `r2g/SURFACE.md` for the audited endpoint surface |
 | `tools/latex2text/` | Zig | LaTeX → plain text sidecar used by reindex (avoids Python texlive deps) |
 | `tools/arxiv-skip/` | Zig | Arxiv paper-id deduplication helper |
 
@@ -51,4 +51,4 @@ Migrations:
 
 ## Where this fits
 
-`deepresearch` calls `skills-rae` for per-stage skill context. `platform.dashboard` calls `skills-rae` for the `/skills` and `/memory` pages, and `r2g` for the `/library` page. `evolve` and `deepresearch` both write to `evo.insights` directly via SQL. Depends only on `adamomaton-core`. See `docs/ARCHITECTURE.md` in the umbrella.
+`deepresearch` calls `skills-rae` for per-stage skill context. `platform.dashboard` calls `skills-rae` for the `/skills` and `/memory` pages, and `r2g` for the `/library` page. `evolve` and `deepresearch` both write to `evo.insights` directly via SQL. Depends only on `adamaton-core`. See `docs/ARCHITECTURE.md` in the umbrella.

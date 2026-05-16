@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/tarwalk"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/tarwalk"
 )
 
 // MaxMemberBytes caps per-figure raw bytes. Matches _MAX_MEMBER_BYTES in

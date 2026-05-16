@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills/activities"
-	skillsworkflows "github.com/sirus20x6/adamomaton-knowledge/skills/workflows"
+	"github.com/sirus20x6/adamaton-knowledge/skills/activities"
+	skillsworkflows "github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
 // registerSyncWorkflows wires the two Phase 2A workflows onto the

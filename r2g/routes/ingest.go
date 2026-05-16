@@ -14,9 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/chunking"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/ingestpipeline"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/ingestpipeline"
 )
 
 // Max payload r2g will accept on /v3/documents. 50 MB covers all the

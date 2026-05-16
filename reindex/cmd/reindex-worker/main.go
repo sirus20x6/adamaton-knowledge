@@ -27,8 +27,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
-	"github.com/sirus20x6/adamomaton-core/workerregistry"
-	reindexworkflows "github.com/sirus20x6/adamomaton-knowledge/reindex/workflows"
+	"github.com/sirus20x6/adamaton-core/workerregistry"
+	reindexworkflows "github.com/sirus20x6/adamaton-knowledge/reindex/workflows"
 )
 
 const (

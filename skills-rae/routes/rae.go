@@ -11,11 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/compile"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/retrieval"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/compile"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/retrieval"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 // CompileRequest is the public POST /v1/rae/compile shape. Mirrors the

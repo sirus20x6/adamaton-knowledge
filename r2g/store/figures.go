@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/figures"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/figures"
 )
 
 // InsertFigures writes the supplied rows into platform.document_figures.

@@ -7,7 +7,7 @@ package workflows
 import (
 	"github.com/google/uuid"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/activities"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/activities"
 )
 
 // TaskQueue is the Temporal task queue this module's workflows + activities

@@ -1,4 +1,4 @@
-# Agent instructions — adamomaton-knowledge
+# Agent instructions — adamaton-knowledge
 
 Four Go modules (skills, skills-rae, reindex, r2g) + two Zig sidecars (latex2text, arxiv-skip). Owns the RAG / graphrag / memory data plane.
 
@@ -25,7 +25,7 @@ From the umbrella, `go build ./...` covers all four Go modules via `go.work`.
 
 ## Gotchas
 
-- **Each subdir is its own Go module.** `cd skills && go test ./...` and `cd r2g && go test ./...` are separate test runs. CI per-module pins use the tagged version of `adamomaton-core`; local dev resolves via the umbrella `go.work`.
+- **Each subdir is its own Go module.** `cd skills && go test ./...` and `cd r2g && go test ./...` are separate test runs. CI per-module pins use the tagged version of `adamaton-core`; local dev resolves via the umbrella `go.work`.
 - **`octen` returns 1024-dim vectors** (memory: `octen_embedding_dim`). Any `vector(N)` migration in `r2g/migrations/` or `reindex/sql/` must match.
 - **skills-rae listens on `:7376`**. Don't pick another port without updating `platform.dashboard` + `deepresearch` callers + the umbrella deploy compose.
 - **r2g replaces R2R `/v3/*` only** — the platform wrapper at `/platform/*` is still Python (see `r2g/SURFACE.md`). Don't bake `/platform/*` semantics into r2g.

@@ -28,9 +28,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 // Weights mirrors the paper's eq (3) coefficients. Defaults below

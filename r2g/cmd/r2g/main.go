@@ -38,13 +38,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/chunking"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/llm"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/observe"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/routes"
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/store"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/llm"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/observe"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/routes"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 func main() {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
 )
 
 // EmbedDeps wraps the embedder client plus the postgres pool.

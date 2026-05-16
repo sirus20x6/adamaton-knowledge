@@ -11,8 +11,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	skillsactivities "github.com/sirus20x6/adamomaton-knowledge/skills/activities"
-	skillsworkflows "github.com/sirus20x6/adamomaton-knowledge/skills/workflows"
+	skillsactivities "github.com/sirus20x6/adamaton-knowledge/skills/activities"
+	skillsworkflows "github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
 // registerImportWorkflows binds the ImportSkillsFromGithubWorkflow under

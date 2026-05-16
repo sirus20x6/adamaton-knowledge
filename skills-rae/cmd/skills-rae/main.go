@@ -38,11 +38,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/observe"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/routes"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/observe"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/routes"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 func main() {

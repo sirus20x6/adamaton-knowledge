@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/retrieval"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/retrieval"
 )
 
 func TestCompile_RendersHeadingPerSelected(t *testing.T) {

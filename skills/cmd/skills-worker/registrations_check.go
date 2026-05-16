@@ -22,8 +22,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	skillsactivities "github.com/sirus20x6/adamomaton-knowledge/skills/activities"
-	skillsworkflows "github.com/sirus20x6/adamomaton-knowledge/skills/workflows"
+	skillsactivities "github.com/sirus20x6/adamaton-knowledge/skills/activities"
+	skillsworkflows "github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
 // registerCheckWorkflows wires the two check-source workflow functions

@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/embeddings"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/reranker"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/retrieval"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/reranker"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/retrieval"
 )
 
 // RegisterSearch wires POST /v1/rae/search. Returns the raw retrieval

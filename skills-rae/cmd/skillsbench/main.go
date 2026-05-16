@@ -25,7 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/bench"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/bench"
 )
 
 func main() {

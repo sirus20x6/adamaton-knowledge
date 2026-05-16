@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/internal/subunits"
-	"github.com/sirus20x6/adamomaton-knowledge/skills-rae/store"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/subunits"
+	"github.com/sirus20x6/adamaton-knowledge/skills-rae/store"
 )
 
 // SubunitWire is the per-activity wire format for a subunit. Used so

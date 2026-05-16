@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/llm"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/llm"
 )
 
 // fakeLLM stubs llm.Client at the network boundary. We construct a real

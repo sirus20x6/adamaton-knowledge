@@ -31,7 +31,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"gopkg.in/yaml.v3"
 
-	skillsworkflows "github.com/sirus20x6/adamomaton-knowledge/skills/workflows"
+	skillsworkflows "github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
 // GithubActivities groups the GitHub importer activities. Constructed

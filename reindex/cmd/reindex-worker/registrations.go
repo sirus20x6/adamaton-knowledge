@@ -17,8 +17,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/sirus20x6/adamomaton-knowledge/reindex/activities"
-	reindexworkflows "github.com/sirus20x6/adamomaton-knowledge/reindex/workflows"
+	"github.com/sirus20x6/adamaton-knowledge/reindex/activities"
+	reindexworkflows "github.com/sirus20x6/adamaton-knowledge/reindex/workflows"
 )
 
 // registerIngestSide wires the corpus + paper workflows and the

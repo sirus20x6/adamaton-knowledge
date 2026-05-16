@@ -24,7 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/store"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // Real-data tunables. Matched to the Python module-level constants.

@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sirus20x6/adamomaton-knowledge/r2g/internal/llm"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/llm"
 )
 
 // ErrSuspectEmpty is returned by Run when the LLM gave back valid but
