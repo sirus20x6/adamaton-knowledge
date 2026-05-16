@@ -1,0 +1,24 @@
+# SkillsBench example dataset — illustrates the JSONL schema.
+# Lines starting with '#' and blank lines are ignored by the loader.
+# Each non-comment line is a JSON object with these fields:
+#   id              (string)  — stable identifier; auto-generated if missing
+#   query           (string)  — the prompt sent to /v1/rae/compile
+#   gold_skill_ids  (uuid[])  — the truth set against which selected_skills is scored
+#   gold_subunit_kinds (string[], optional) — restrict subunit recall scoring
+#   task_id         (string, optional) — propagated to skills-rae for trace correlation
+#   notes           (string, optional) — author commentary; ignored by the runner
+#
+# Authoring guidance:
+#   - Replace the placeholder UUIDs below with real evo.skills.id values
+#     from your corpus. Run:
+#       psql -c "SELECT id, name FROM evo.skills WHERE name ILIKE '%foo%' LIMIT 5"
+#     to find the gold IDs for each query.
+#   - For an MVP labelled set, bootstrap with `skillsbench self-gold` and
+#     then hand-curate the result so the queries don't trivially match
+#     the skill name.
+#
+# The placeholders below WILL NOT score well against any real corpus —
+# they exist only so the schema is greppable from the harness's source tree.
+{"id":"example-1","query":"rename a function across a Go module","gold_skill_ids":["00000000-0000-0000-0000-000000000001"]}
+{"id":"example-2","query":"add a database migration with rollback","gold_skill_ids":["00000000-0000-0000-0000-000000000002"]}
+{"id":"example-3","query":"profile a Go binary with pprof","gold_skill_ids":["00000000-0000-0000-0000-000000000003","00000000-0000-0000-0000-000000000004"]}

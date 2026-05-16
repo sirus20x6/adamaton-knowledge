@@ -1,0 +1,38 @@
+
+  skills-rae:
+    image: evo-skills-rae:dev
+    environment:
+      SKILLS_RAE_DSN: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+      SKILLS_RAE_PORT: "7376"
+      SKILLS_RAE_PPROF_PORT: "7377"
+      SKILLS_RAE_LOG_FORMAT: "json"
+      BGE_SIDECAR_URL: "http://10.0.4.37:8089"
+      SKILLS_RAE_EMBED_MODEL: "bge-m3"
+    extra_hosts:
+      - "workstation:10.0.4.37"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose: ["7376", "7377"]
+    restart: unless-stopped
+
+  skills-rae-worker:
+    image: evo-skills-rae-worker:dev
+    environment:
+      SKILLS_RAE_DSN: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+      BGE_SIDECAR_URL: "http://10.0.4.37:8089"
+      # UMAP+HDBSCAN clustering sidecar — runs on the workstation
+      # alongside bge-m3 (CPU only, no GPU needed).
+      CLUSTER_SIDECAR_URL: "http://10.0.4.37:8091"
+      SKILLS_RAE_EMBED_MODEL: "bge-m3"
+      TEMPORAL_ADDRESS: "temporal:7233"
+      TEMPORAL_NAMESPACE: "default"
+      SKILLS_RAE_LOG_LEVEL: "info"
+    extra_hosts:
+      - "workstation:10.0.4.37"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    restart: unless-stopped

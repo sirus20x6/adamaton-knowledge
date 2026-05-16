@@ -1,0 +1,51 @@
+\documentclass{article}
+\title{Edge Cases}
+\author{Dave Edgecase}
+
+\begin{document}
+\maketitle
+
+\section{Strange Markup}
+Unknown commands should keep their argument text: \unknowncmd{kept text}.
+Escaped specials: 50\% of \$100 is \$50, and an underscore looks like \_.
+Em-dash---like so. En-dash--also so.
+``Smart quotes'' should become straight.
+A non-breaking~space.
+A line with a manual break\\
+following it.
+
+\begin{itemize}
+  \item First bullet.
+  \item Second bullet with \textbf{bold} and \emph{italic}.
+\end{itemize}
+
+\begin{verbatim}
+fn main() {
+    println!("hello");
+}
+\end{verbatim}
+
+\begin{unknownenv}
+The body of an unknown environment should still be kept.
+\end{unknownenv}
+
+% This whole line is a comment and must NOT appear.
+
+\paragraph{Aside}
+A paragraph header should produce inline text.
+
+\textcolor{red}{hello world} appears here.
+\color{blue} and a stray color declaration drops cleanly.
+
+\begin{table}[h]
+\caption{A tiny comparison.}
+\label{tab:tiny}
+\begin{tabular}{lcc}
+Model & Score & Time \\
+Alpha & 10 & 1.0 \\
+Beta & 20 & 2.5 \\
+\end{tabular}
+\end{table}
+
+The Polish name {\L}ukasz should keep its leading character.
+\end{document}

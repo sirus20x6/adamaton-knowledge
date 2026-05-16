@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "id": "b183ca30-b687-4a04-854f-2dc5c322960f",
+      "document_id": "a30c8f0a-26ec-5d78-b672-80c437908bb5",
+      "owner_id": "2acb499e-8428-543b-bd85-0d9098718220",
+      "collection_ids": [
+        "122fdf6a-e116-546b-a8f6-e4cb2e2c0a09"
+      ],
+      "text": "* Superman: Metallo is in most versions a criminal (usually a man named John Corben, but there's been others, including a version of Lex Luthor) who has his brain put into a robotic body after his original human form is damaged beyond repair. Adding an extra layer to the character is the fact that in most versions, only green kryptonite can provide enough power to properly run the robotic body, inevitably driving him into conflict with Superman.\n* Teen Titans: College athlete Victor Stone is badly injured in a lab accident (originally a transdimensional experiment his parents were working on, which released a monstrous being, but it varies by canon). This led to the death of his mother, and his distraught father rebuilds him with experimental technology, turning him into the superhero Cyborg. Understandably, Cyborg is badly traumatized both by his injuries and Unwilling Roboticisation for quite some time. Not helping is that his cybernetics put an end to his athletic career.\n\n* Transformers vs. G.I. Joe: Billy loses his arm and leg during a fight with Snake-Eyes. Megatron then replaces Billy's missing limbs by binary-bonding him to the Decepticons Army (who serves as Billy's new arm) and Limbot (who is the replacement for Billy's leg).\n* Ultimate Marvel: The Ultimate version of Black Panther is a Wakandan teenager who was rebuilt into a cyborg by Weapon X after getting mauled by a panther.\n* Warlord of Mars: The Machine Men were Martians that have been killed and had their heads placed on cybernetic bodies. Their creation was possible by researching an ancient golem sealed under Helium's catacombs. Their head being intact is required to create a Machine Man, the manner or time of their death is irrelevant. The very first Machine Man Senneth Dor tries to raise an army with them to conquer Mars.\n\n* Warlord of Mars: The Machine Men were Martians that have been killed and had their heads placed on cybernetic bodies. Their creation was possible by researching an ancient golem sealed under Helium's catacombs. Their head being intact is required to create a Machine Man, the manner or time of their death is irrelevant. The very first Machine Man Senneth Dor tries to raise an army with them to conquer Mars.\n* X-Men: The villain Crimson Commando was nearly killed during a mission working for the U.S. government in Iraq, including having his arm sliced off. He was saved by Avalanche, who got him back to base in time to receive medical attention. Since he still wanted to serve his country, the Commando agreed to be rebuilt as a cyborg by SHIELD scientists. A test run briefly caused him to go crazy until he was stopped by Spider-Man and Ghost Rider, but once the bugs were worked out he started serving as a government agent full-time.\n\nFan Works",
+      "metadata": {
+        "reingested": true,
+        "chunk_order": 13
+      }
+    },
+    {
+      "id": "004b2130-8d30-5c0a-a6a3-681a9c8da299",
+      "document_id": "7d31570b-cd91-44fd-ae5d-1317fcb028bb",
+      "owner_id": "2acb499e-8428-543b-bd85-0d9098718220",
+      "collection_ids": [
+        "122fdf6a-e116-546b-a8f6-e4cb2e2c0a09"
+      ],
+      "text": "Then we apply nonlinear activations (such as softmax or sigmoid)  to the query-key inner products of these top  experts to obtain the router scores.",
+      "metadata": {
+        "version": "v0",
+        "arxiv_id": "2407.04153",
+        "main_tex": "main.tex",
+        "cite_keys": [],
+        "tex_files": [
+          "listings_style.tex",
+          "main.tex",
+          "math_commands.tex"
+        ],
+        "chunk_kind": "prose",
+        "ref_labels": [],
+        "source_url": "https://arxiv.org/e-print/2407.04153",
+        "chunk_order": 8,
+        "paper_title": "Mixture of A Million Experts",
+        "source_tier": "latex",
+        "ingested_via": "platform_sources",
+        "order_in_doc": 8,
+        "document_type": "eprint",
+        "section_label": "peer-overview",
+        "section_title": "PEER Overview"
+      }
+    }
+  ],
+  "total_entries": 68733
+}

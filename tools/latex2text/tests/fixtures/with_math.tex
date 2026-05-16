@@ -1,0 +1,41 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\title{A Paper With Math And Figures}
+\author{Carol Researcher}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present an analysis involving several equations~\cite{Knuth1984}
+and a figure. Inline math like $x^2 + y^2 = z^2$ appears throughout.
+\end{abstract}
+
+\section{Theory}
+Following \cite{Pythagoras} we recall the relation $a^2 + b^2 = c^2$.
+A display block:
+\begin{equation}
+  \int_0^1 f(x)\, dx = F(1) - F(0).
+\end{equation}
+
+\subsection{Auxiliary Lemmas}
+A second equation:
+\[
+  \nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}.
+\]
+
+\section{Results}
+See Figure~\ref{fig:demo} for an overview.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.5\textwidth]{diagram.pdf}
+  \caption{An overview diagram.}
+  \label{fig:demo}
+\end{figure}
+
+\section{Conclusion}
+We close with thanks to \cite{Anonymous}.
+\end{document}

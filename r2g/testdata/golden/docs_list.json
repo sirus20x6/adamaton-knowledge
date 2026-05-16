@@ -1,0 +1,108 @@
+{
+  "results": [
+    {
+      "id": "82d04baa-cb6f-4b62-af87-a4d127ad02d9",
+      "collection_ids": [
+        "122fdf6a-e116-546b-a8f6-e4cb2e2c0a09"
+      ],
+      "owner_id": "2acb499e-8428-543b-bd85-0d9098718220",
+      "document_type": "eprint",
+      "metadata": {
+        "version": "v0",
+        "arxiv_id": "2506.16150",
+        "main_tex": "iclr2026_main.tex",
+        "tex_files": [
+          "iclr2026_main.tex",
+          "math_commands.tex",
+          "section/0-Abstract.tex",
+          "section/1-Introduction.tex",
+          "section/2-Method.tex",
+          "section/4-Experiment-1.tex",
+          "section/5-Experiment-2.tex",
+          "section/6-Discussion.tex",
+          "section/7-Conclusion.tex",
+          "section/Appendix.tex",
+          "table/Examples-of-prompts.tex",
+          "table/Examples-of-role-play.tex",
+          "table/Scenarios_Information.tex",
+          "table/cpd.tex",
+          "table/ctar.tex",
+          "table/neutral.tex",
+          "table/ora.tex",
+          "table/persona-profiles.tex",
+          "table/persona.tex",
+          "table/precision.tex",
+          "table/recall.tex",
+          "table/trait-scale-mapping.tex",
+          "table/traits-intro.tex",
+          "table/turn.tex"
+        ],
+        "source_url": "https://arxiv.org/e-print/2506.16150",
+        "paper_title": "PRISON: Unmasking the Criminal Potential of Large Language Models",
+        "source_tier": "latex",
+        "ingested_via": "platform_sources"
+      },
+      "title": "2506.16150.eprint",
+      "version": "v0",
+      "size_in_bytes": 628779,
+      "ingestion_status": "augmenting",
+      "extraction_status": "pending",
+      "created_at": "2026-05-14T19:31:48.558768Z",
+      "updated_at": "2026-05-14T19:31:48.563298Z",
+      "ingestion_attempt_number": null,
+      "summary": null,
+      "total_tokens": 16652,
+      "chunks": null
+    },
+    {
+      "id": "cfcf23ea-e0db-43fe-93f0-3b00a742735e",
+      "collection_ids": [
+        "122fdf6a-e116-546b-a8f6-e4cb2e2c0a09"
+      ],
+      "owner_id": "2acb499e-8428-543b-bd85-0d9098718220",
+      "document_type": "eprint",
+      "metadata": {
+        "version": "v0",
+        "arxiv_id": "2506.15684",
+        "main_tex": "main.tex",
+        "tex_files": [
+          "experiments/tables/tab_cmp_baseline.tex",
+          "experiments/tables/tab_ablation_baseModel.tex",
+          "experiments/figures/fig_sup_d2n.tex",
+          "experiments/figures/fig_teaser.tex",
+          "experiments/figures/fig_cmp_hps_360.tex",
+          "experiments/figures/fig_ablation_lr.tex",
+          "experiments/figures/fig_sup_hpsv2.tex",
+          "experiments/figures/fig_scatter.tex",
+          "experiments/figures/fig_sup_aesthetic.tex",
+          "experiments/figures/fig_sup_normal.tex",
+          "experiments/figures/fig_reward_curves.tex",
+          "main.tex",
+          "sections/06_conclusion.tex",
+          "sections/01_introduction.tex",
+          "sections/02_relatedwork.tex",
+          "sections/05_experiments.tex",
+          "sections/define.tex",
+          "sections/03_preliminaries.tex",
+          "sections/04_methods.tex"
+        ],
+        "source_url": "https://arxiv.org/e-print/2506.15684",
+        "paper_title": "14.5pt Nabla-R2D3: Effective and Efficient 3D Diffusion Alignment with 2D Rewards",
+        "source_tier": "latex",
+        "ingested_via": "platform_sources"
+      },
+      "title": "2506.15684.eprint",
+      "version": "v0",
+      "size_in_bytes": 6743069,
+      "ingestion_status": "success",
+      "extraction_status": "pending",
+      "created_at": "2026-05-14T19:27:00.741532Z",
+      "updated_at": "2026-05-14T19:27:00.761249Z",
+      "ingestion_attempt_number": null,
+      "summary": "The document contains a research paper titled \"Nabla-R2D3: Effective and Efficient 3D Diffusion Alignment with 2D Rewards.\" It introduces a reinforcement learning framework that aligns 3D-native diffusion models using 2D reward signals, building upon the Nabla-GFlowNet method. The approach matches the score function to reward gradients, enabling efficient finetuning with fewer steps while mitigating prior forgetting and reward hacking issues common in vanilla baselines. The paper details the mathematical formulation of the forward and reverse losses, demonstrating their unbiasedness. Experimental setups involve finetuning models like DiffSplat and GaussianCube using rewards such as Aesthetic Score, HPSv2, and Geometry Reward, utilizing LoRA parametrization and specific learning rates. Results show that 3D native models produce more consistent and artifact-free outputs compared to multi-view models like MVDream. However, the authors acknowledge limitations, including imperfect rewards leading to hallucinated geometry and reward hacking causing unnatural semantic distortions during extended training.",
+      "total_tokens": 2017,
+      "chunks": null
+    }
+  ],
+  "total_entries": 2954
+}

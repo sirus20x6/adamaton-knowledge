@@ -1,0 +1,16 @@
+    # SkillRAE retrieval + context compilation service. All
+    # /platform/skills/rae/* requests route here. /v1/rae/* is the
+    # native service path; we expose it under /platform/skills/rae/*
+    # so the existing /platform/* prefix convention holds.
+    @skills_rae {
+        path /platform/skills/rae /platform/skills/rae/*
+    }
+    handle @skills_rae {
+        uri strip_prefix /platform/skills/rae
+        reverse_proxy skills-rae:7376 {
+            transport http {
+                read_timeout 60s
+            }
+        }
+    }
+

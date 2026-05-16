@@ -1,0 +1,14 @@
+.{
+    .name = .arxiv_skip,
+    .version = "0.1.0",
+    .fingerprint = 0xdc6b53dfb64d3bd6,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+        "Dockerfile",
+    },
+}

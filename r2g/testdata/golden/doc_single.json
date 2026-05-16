@@ -1,0 +1,38 @@
+{
+  "id": "72c177e7-6684-471b-87c4-8a47e8cef289",
+  "collection_ids": [
+    "122fdf6a-e116-546b-a8f6-e4cb2e2c0a09"
+  ],
+  "owner_id": "2acb499e-8428-543b-bd85-0d9098718220",
+  "document_type": "eprint",
+  "metadata": {
+    "version": "v0",
+    "arxiv_id": "2506.12274",
+    "main_tex": "colm2025_conference.tex",
+    "tex_files": [
+      "colm2025_conference.tex",
+      "Secs/DeepCleanseImplementation.tex",
+      "Secs/abs2.tex",
+      "Secs/con.tex",
+      "Secs/intro.tex",
+      "Secs/method2.tex",
+      "Secs/related.tex",
+      "Secs/method.tex"
+    ],
+    "source_url": "https://arxiv.org/e-print/2506.12274",
+    "paper_title": "InfoFlood: Jailbreaking Large Language Models with Information Overload",
+    "source_tier": "latex",
+    "ingested_via": "platform_sources"
+  },
+  "title": "2506.12274.eprint",
+  "version": "v0",
+  "size_in_bytes": 779155,
+  "ingestion_status": "success",
+  "extraction_status": "pending",
+  "created_at": "2026-05-14T18:43:35.391034Z",
+  "updated_at": "2026-05-14T18:43:35.455726Z",
+  "ingestion_attempt_number": 1,
+  "summary": "The document contains a research paper titled \"InfoFlood: Jailbreaking Large Language Models with Information Overload.\" It introduces a novel vulnerability in LLMs where excessive linguistic complexity disrupts safety mechanisms, termed \"Information Overload.\" The authors propose InfoFlood, a black-box jailbreak method that uses a three-stage process: Linguistic Saturation (rephrasing queries to be verbose and complex), Rejection Analysis (identifying why a jailbreak failed), and Saturation Refinement (iteratively adjusting the prompt). Experiments on GPT-4o, GPT-3.5, Gemini 2.0, and LLaMA 3.1 show InfoFlood achieves near-perfect success rates, outperforming baselines like GCG and PAIR. The study also demonstrates that common defenses like OpenAI Moderation and SmoothLLM are largely ineffective against these attacks. Latent space analysis confirms that InfoFlood queries embed malicious intent within structures that resemble safe queries, thereby evading detection.",
+  "total_tokens": 18316,
+  "chunks": null
+}
