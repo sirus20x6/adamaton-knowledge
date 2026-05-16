@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/sirus20x6/adamaton-core/workerregistry"
 	"github.com/sirus20x6/adamaton-knowledge/skills-rae/activities"
 	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/clusterclient"
 	"github.com/sirus20x6/adamaton-knowledge/skills-rae/internal/embeddings"
@@ -96,6 +97,20 @@ func run() error {
 		MaxConcurrentActivityExecutionSize:     8,
 		MaxConcurrentWorkflowTaskExecutionSize: 8,
 	})
+
+	// Self-register with evo.workers so the dashboard's /api/v1/workers
+	// (and /api/v1/racks) sees this node alongside its sibling workers.
+	// Compose pins hostname:pi on this service so the identity lands as
+	// skills-rae-worker@pi instead of the container ID.
+	if sess, err := workerregistry.Register(ctx, pool, workerregistry.RegisterOptions{
+		Identity:       "skills-rae-worker",
+		DeclaredQueues: []string{workflows.TaskQueue},
+		Logger:         logger,
+	}); err != nil {
+		logger.WithError(err).Warn("worker self-registration failed; worker continues without a workers row")
+	} else {
+		defer sess.Close(context.Background())
+	}
 
 	// Workflows.
 	w.RegisterWorkflowWithOptions(workflows.IndexSkillWorkflow, workflow.RegisterOptions{Name: workflows.WorkflowIndexSkill})
