@@ -16,7 +16,13 @@
 #
 # Switched from alpine:3.21 (CGO_ENABLED=0) -> debian:trixie-slim
 # multi-stage on 2026-05-15 when r2g picked up go-fitz.
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+#
+# Builder is on trixie (glibc 2.40) — not bookworm — because go-fitz's
+# pre-built libmupdfthird_linux_arm64.a references __isoc23_strtol /
+# __isoc23_strtoul (C23 symbols added in glibc 2.38). Bookworm ships
+# 2.36 and the link fails with "undefined reference to `__isoc23_strtol'".
+# Runtime image is trixie too so the dynamic libc on both sides matches.
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS builder
 ARG TARGETARCH
 
 RUN dpkg --add-architecture arm64 \
