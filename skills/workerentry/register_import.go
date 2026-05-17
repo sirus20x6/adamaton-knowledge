@@ -1,7 +1,7 @@
+package workerentry
+
 // Phase 2B registrations: the GitHub importer workflow + its three
-// activities. Lives alongside main.go in this binary so the worker
-// build is self-contained; main.go calls these at startup.
-package main
+// activities. Lifted from skills/cmd/skills-worker/registrations_import.go.
 
 import (
 	"net/http"

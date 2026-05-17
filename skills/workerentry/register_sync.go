@@ -1,9 +1,8 @@
-package main
+package workerentry
 
 // Phase 2A registrations: SyncSkillToR2RWorkflow / DeleteSkillFromR2RWorkflow
 // plus the R2RActivities and PersistActivities they depend on.
-// Lives in its own file so 2B (import) and 2C (check-source) agents can
-// add their own registrations_*.go without merge conflicts on main.go.
+// Lifted from skills/cmd/skills-worker/registrations_sync.go.
 
 import (
 	"net/http"
@@ -38,7 +37,7 @@ func registerSyncWorkflows(w worker.Worker) {
 // structs (reading SKILLS_R2R_* env vars once at startup, per the
 // "values into struct fields, not per-call lookups" convention in
 // evolve/activities/smoke.go:19-22) and registers them with the
-// worker. The HTTP client passed in is reused — main.go already
+// worker. The HTTP client passed in is reused — the caller already
 // allocates one with a 120s ceiling.
 func registerSyncActivities(w worker.Worker, pool *pgxpool.Pool, httpClient *http.Client, logger *logrus.Logger) {
 	baseURL := envOr("SKILLS_R2R_BASE_URL", "https://deepresearch.local")
@@ -70,25 +69,8 @@ func registerSyncActivities(w worker.Worker, pool *pgxpool.Pool, httpClient *htt
 	w.RegisterActivity(persist)
 
 	logger.WithFields(logrus.Fields{
-		"base_url":  baseURL,
-		"corpus":    truthy(corpusID),
-		"insecure":  insecure,
+		"base_url": baseURL,
+		"corpus":   truthy(corpusID),
+		"insecure": insecure,
 	}).Info("registered Phase 2A sync activities")
-}
-
-// envBool mirrors the SKILLS_R2R_INSECURE parsing in
-// dashboard/apiserver/skills_r2r_sync.go:48-51.
-func envBool(key string) bool {
-	v := os.Getenv(key)
-	return v == "1" || v == "true" || v == "yes"
-}
-
-// truthy collapses a string to a yes/no label for log lines so we don't
-// leak a corpus UUID into structured logs at info level. Empty → "no",
-// anything else → "yes".
-func truthy(s string) string {
-	if s == "" {
-		return "no"
-	}
-	return "yes"
 }

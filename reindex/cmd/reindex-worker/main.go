@@ -28,6 +28,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/sirus20x6/adamaton-core/workerregistry"
+	"github.com/sirus20x6/adamaton-knowledge/reindex/workerentry"
 	reindexworkflows "github.com/sirus20x6/adamaton-knowledge/reindex/workflows"
 )
 
@@ -131,11 +132,19 @@ func main() {
 		MaxConcurrentWorkflowTaskExecutionSize: extractConcurrency,
 	})
 
-	// Register workflows + activities on the appropriate worker. The
-	// split lives in registrations.go so callers can grep one file
-	// to see which workflows land on which queue.
-	registerIngestSide(ingestW, pool, httpClient, platformURL, r2gURL, arxivSkipURL, logger)
-	registerExtractSide(extractW, pool, httpClient, platformURL, r2gURL, arxivSkipURL, logger)
+	// Registration helpers live in reindex/workerentry so the
+	// unified adamaton-worker can register the same workflows + activities
+	// from its own main; here we host both queues in one process.
+	deps := workerentry.Deps{
+		Pool:         pool,
+		HTTPClient:   httpClient,
+		Logger:       logger,
+		PlatformURL:  platformURL,
+		R2GURL:       r2gURL,
+		ArxivSkipURL: arxivSkipURL,
+	}
+	workerentry.RegisterIngest(ingestW, deps)
+	workerentry.RegisterExtract(extractW, deps)
 
 	if sess, err := workerregistry.Register(ctx, pool, workerregistry.RegisterOptions{
 		Identity: "reindex-worker",
