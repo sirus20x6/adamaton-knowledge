@@ -2,8 +2,8 @@
 // service. It owns the multi-level skill graph (communities ↔ skills ↔
 // subunits) and serves /v1/rae/compile and /v1/rae/search to the
 // delegator. The offline indexer that populates the graph runs in the
-// sibling ``skills-rae-worker`` binary against the Temporal queue
-// ``skills-rae``.
+// sibling “skills-rae-worker“ binary against the Temporal queue
+// “skills-rae“.
 //
 // Configuration is read from environment variables:
 //
@@ -11,7 +11,10 @@
 //	SKILLS_RAE_DSN           — postgres DSN (shared evo DB)
 //	SKILLS_RAE_LOG_LEVEL     — logrus level (default "info")
 //	SKILLS_RAE_LOG_FORMAT    — "text" or "json" (default "text")
-//	BGE_SIDECAR_URL          — OpenAI-compatible embeddings sidecar
+//	BGE_EMBED_URL            — OpenAI-compatible embeddings sidecar
+//	                           (preferred; points at the native llama-server
+//	                           bge-embed)
+//	BGE_SIDECAR_URL          — legacy fallback for the same; deprecated
 //	SKILLS_RAE_EMBED_MODEL   — model name (default "bge-m3")
 //	SKILLS_RAE_RERANKER_URL  — optional cross-encoder rerank sidecar
 //	SKILLS_RAE_PPROF_PORT    — pprof + /metrics side listener (default 7377, "" disables)
@@ -71,13 +74,19 @@ func run() error {
 	defer pool.Close()
 	logger.WithField("port", port).Info("postgres pool ready")
 
-	embedURL := os.Getenv("BGE_SIDECAR_URL")
+	// BGE_EMBED_URL is the post-Python-elim variable (points at the new
+	// llama-server bge-embed catalog service); BGE_SIDECAR_URL is the
+	// legacy name kept as a fallback during the migration.
+	embedURL := os.Getenv("BGE_EMBED_URL")
+	if embedURL == "" {
+		embedURL = os.Getenv("BGE_SIDECAR_URL")
+	}
 	embedModel := envOr("SKILLS_RAE_EMBED_MODEL", "bge-m3")
 	embedder := embeddings.NewClient(embedURL, embedModel)
 	if embedder.Enabled() {
 		logger.WithFields(map[string]any{"url": embedURL, "model": embedModel}).Info("embedder ready")
 	} else {
-		logger.Warn("BGE_SIDECAR_URL not set; /v1/rae/* will return 500")
+		logger.Warn("neither BGE_EMBED_URL nor BGE_SIDECAR_URL set; /v1/rae/* will return 500")
 	}
 
 	// Optional cross-encoder reranker. Off by default — the cost on
