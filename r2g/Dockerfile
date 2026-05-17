@@ -1,32 +1,46 @@
-# Multi-stage build: compile r2g inside the same Debian bookworm-slim
-# environment we run it in, so the cgo binary links against bookworm
-# glibc (2.36) instead of whatever lives on the workstation.
+# Multi-stage build for r2g.
 #
-# Build with:
-#   docker buildx build --platform linux/arm64 \
-#     -t evo-r2g:dev --output type=docker \
-#     -f r2g/Dockerfile .
+# CGO_ENABLED=1 because r2g links go-fitz (MuPDF cgo bindings) for figure
+# thumbnailing. go-fitz statically embeds MuPDF so we only need a libc-
+# compatible C toolchain, not the arm64 mupdf system libraries.
 #
-# (Note: build context is the repo root, not bin/. The builder stage
-# needs go.mod/go.sum/source in scope.)
+# We cross-compile from a native amd64 builder rather than running the Go
+# toolchain under qemu — qemu user-mode segfaults the arm64 Go compiler
+# on certain packages (e.g. html-to-markdown/v2). See memory
+# r2g-arm64-cgo-qemu-segfault.md. The pattern:
+#   - --platform=$BUILDPLATFORM pins the builder stage to the host arch
+#     (amd64) so the Go compiler itself runs natively.
+#   - apt installs the arm64 C cross-toolchain (`crossbuild-essential-arm64`).
+#   - CGO_ENABLED=1 + CC=aarch64-linux-gnu-gcc + GOARCH=$TARGETARCH lets Go
+#     drive a cross-compile of both pure-Go and cgo code.
 #
-# Switched from alpine:3.21 (CGO_ENABLED=0) -> debian:bookworm-slim
-# multi-stage on 2026-05-15 when r2g picked up go-fitz (MuPDF cgo)
-# for figure thumbnailing.
+# Switched from alpine:3.21 (CGO_ENABLED=0) -> debian:trixie-slim
+# multi-stage on 2026-05-15 when r2g picked up go-fitz.
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+ARG TARGETARCH
 
-# Builder runs under buildx-managed QEMU when targeting a different
-# arch than the host. Slower than a true cross-compile, but it dodges
-# the cgo sysroot complication: go-fitz statically links libmupdf, but
-# the resulting binary still depends on libc, and that libc must be
-# the target's. Letting buildx-QEMU run the Go toolchain on arm64
-# directly produces a binary linked against bookworm's glibc 2.36 by
-# construction.
-FROM golang:1.25-bookworm AS builder
+RUN dpkg --add-architecture arm64 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+         crossbuild-essential-arm64 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 COPY r2g/go.mod r2g/go.sum ./
 RUN go mod download
 COPY r2g/ .
-RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /out/r2g ./cmd/r2g
+
+# Branch on TARGETARCH so a non-arm64 build still works (the workstation
+# `bin/adam ship workstation r2g` path would land here with amd64).
+RUN set -eux; \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
+        CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
+            go build -ldflags="-s -w" -o /out/r2g ./cmd/r2g; \
+    else \
+        CGO_ENABLED=1 GOOS=linux GOARCH="$TARGETARCH" \
+            go build -ldflags="-s -w" -o /out/r2g ./cmd/r2g; \
+    fi
 
 FROM debian:trixie-slim
 RUN apt-get update \
