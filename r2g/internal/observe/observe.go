@@ -53,10 +53,11 @@ func LoggerFromContext(ctx context.Context, base *logrus.Logger) *logrus.Entry {
 // once at startup with NewMetrics(reg); the middleware closes over
 // the instance.
 type Metrics struct {
-	requestDuration *prometheus.HistogramVec
-	requestTotal    *prometheus.CounterVec
-	inFlight        prometheus.Gauge
-	sidecarErrors   *prometheus.CounterVec
+	requestDuration     *prometheus.HistogramVec
+	requestTotal        *prometheus.CounterVec
+	inFlight            prometheus.Gauge
+	sidecarErrors       *prometheus.CounterVec
+	graphVoteQueryTotal *prometheus.CounterVec
 }
 
 // NewMetrics registers the standard collector set under the given
@@ -97,6 +98,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "errors_total",
 			Help:      "Sidecar (embeddings, llm, latex2text, pdftotext) failures by kind.",
 		}, []string{"sidecar", "kind"}),
+		graphVoteQueryTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "r2g",
+			Subsystem: "search",
+			Name:      "graph_vote_query_total",
+			Help:      "Count of TGS-RAG graph-vote queries executed, partitioned by outcome.",
+		}, []string{"outcome"}),
 	}
 }
 
@@ -109,6 +116,16 @@ func (m *Metrics) SidecarError(sidecar, kind string) {
 		return
 	}
 	m.sidecarErrors.WithLabelValues(sidecar, kind).Inc()
+}
+
+// GraphVoteOutcome records the result of a graph-vote query. outcome is
+// one of "ok", "empty", or "error". Used by routes/search.go after each
+// HybridSearch call to track Graph-to-Text feature health.
+func (m *Metrics) GraphVoteOutcome(outcome string) {
+	if m == nil || m.graphVoteQueryTotal == nil {
+		return
+	}
+	m.graphVoteQueryTotal.WithLabelValues(outcome).Inc()
 }
 
 // statusRecorder wraps a ResponseWriter to capture the status code
@@ -163,13 +180,13 @@ func Middleware(m *Metrics, base *logrus.Logger) mux.MiddlewareFunc {
 				lvl = logrus.WarnLevel
 			}
 			base.WithFields(logrus.Fields{
-				"request_id":    id,
-				"method":        r.Method,
-				"path":          r.URL.Path,
-				"route":         route,
-				"status":        rec.status,
-				"duration_ms":   dur.Milliseconds(),
-				"remote":        r.RemoteAddr,
+				"request_id":  id,
+				"method":      r.Method,
+				"path":        r.URL.Path,
+				"route":       route,
+				"status":      rec.status,
+				"duration_ms": dur.Milliseconds(),
+				"remote":      r.RemoteAddr,
 			}).Log(lvl, "request")
 		})
 	}

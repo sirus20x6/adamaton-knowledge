@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/observe"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/reranker"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
@@ -32,6 +34,35 @@ func hybridEnabled() bool {
 	default:
 		return false
 	}
+}
+
+// graphVoteEnabled toggles the TGS-RAG Graph-to-Text seed-vote path.
+// Default ON; only "0" or "false" disable. Read per-request so an
+// operator can flip it live without restarting r2g.
+func graphVoteEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("R2G_GRAPH_VOTE_ENABLED")))
+	switch v {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+// graphVoteMaxSeeds reads R2G_GRAPH_VOTE_MAX_SEEDS (default 10). An
+// unparseable or non-positive value falls back to the default rather
+// than failing the request.
+func graphVoteMaxSeeds() int {
+	const def = 10
+	v := strings.TrimSpace(os.Getenv("R2G_GRAPH_VOTE_MAX_SEEDS"))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }
 
 // SearchRequest mirrors what every existing caller actually POSTs.
@@ -54,7 +85,7 @@ type SearchRequest struct {
 //
 // existing callers (dashboard skills_search_graph parser, the SPA
 // research view) deserialize against that exact shape.
-func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Client, rerankerClient *reranker.Client, logger *logrus.Logger) {
+func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Client, rerankerClient *reranker.Client, metrics *observe.Metrics, logger *logrus.Logger) {
 	r.HandleFunc("/v3/retrieval/search", func(w http.ResponseWriter, req *http.Request) {
 		var body SearchRequest
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
@@ -72,6 +103,11 @@ func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Clie
 			writeJSON(w, http.StatusBadRequest, errorBody(err.Error()))
 			return
 		}
+		gvOverride := extractGraphVoteOverride(body.SearchSettings)
+		effectiveGraphVote := graphVoteEnabled()
+		if gvOverride != nil {
+			effectiveGraphVote = *gvOverride
+		}
 
 		vec, err := embedder.EmbedOne(req.Context(), body.Query)
 		if err != nil {
@@ -85,6 +121,7 @@ func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Clie
 		var (
 			hits     []store.SearchHit
 			warnings map[string]string
+			seedIDs  []uuid.UUID
 		)
 		if hybridEnabled() {
 			// Stage-1: pull a wider candidate set when we plan to rerank,
@@ -98,6 +135,39 @@ func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Clie
 			}
 			deepIn := in
 			deepIn.Limit = deepLimit
+
+			// TGS-RAG Channel 1: derive seed entities from the query and
+			// hand them to HybridSearch so it can run the graph-vote
+			// goroutine alongside semantic + BM25. Every degrade path
+			// here (env off, extraction error, no matches) leaves the
+			// response intact and falls back to the prior 2-channel RRF.
+			if effectiveGraphVote {
+				// Multi-corpus search shouldn't constrain seeds to one
+				// corpus; pass "" so ExtractQuerySeedEntities is unscoped.
+				var corpusIDStr string
+				switch len(in.CollectionIDs) {
+				case 1:
+					corpusIDStr = in.CollectionIDs[0].String()
+				default:
+					corpusIDStr = ""
+				}
+				seeds, seedErr := store.ExtractQuerySeedEntities(req.Context(), pool, body.Query, corpusIDStr, graphVoteMaxSeeds())
+				switch {
+				case seedErr != nil:
+					logger.WithError(seedErr).Warn("graph vote seed extraction failed; continuing without seeds")
+					metrics.GraphVoteOutcome("error")
+				case len(seeds) == 0:
+					metrics.GraphVoteOutcome("empty")
+				default:
+					seedIDs = make([]uuid.UUID, 0, len(seeds))
+					for _, s := range seeds {
+						seedIDs = append(seedIDs, s.ID)
+					}
+					deepIn.SeedEntities = seedIDs
+					metrics.GraphVoteOutcome("ok")
+				}
+			}
+
 			hits, warnings, err = store.HybridSearch(req.Context(), pool, deepIn)
 		} else {
 			hits, err = store.SemanticSearch(req.Context(), pool, in)
@@ -169,6 +239,12 @@ func RegisterSearch(r *mux.Router, pool *pgxpool.Pool, embedder *embeddings.Clie
 				"context_document_results": []any{},
 			},
 		})
+
+		logger.WithFields(logrus.Fields{
+			"hits":                 len(hits),
+			"graph_vote_seeds":     len(seedIDs),
+			"graph_vote_effective": effectiveGraphVote,
+		}).Info("search completed")
 	}).Methods(http.MethodPost)
 }
 
@@ -239,6 +315,25 @@ func applySearchSettings(in *store.SearchInput, s map[string]interface{}) error 
 		}
 	}
 	return nil
+}
+
+// extractGraphVoteOverride reads search_settings.graph_vote as a *bool.
+// Returns nil when the key is absent or not a boolean, signalling
+// "follow R2G_GRAPH_VOTE_ENABLED." Lets the bench A/B both states in
+// a single process without operator-coordinated r2g restarts.
+func extractGraphVoteOverride(s map[string]interface{}) *bool {
+	if s == nil {
+		return nil
+	}
+	v, ok := s["graph_vote"]
+	if !ok {
+		return nil
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return nil
+	}
+	return &b
 }
 
 func toInt(v any) (int, bool) {
