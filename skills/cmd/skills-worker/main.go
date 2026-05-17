@@ -4,9 +4,11 @@
 // fire-and-forget goroutines that previously lived in
 // dashboard/apiserver/skills_r2r_sync.go.
 //
-// Deployed on the Pi via systemd/skills-worker.service. Reads Temporal
-// address + Postgres DSN from env; sane defaults match the existing
-// evo-worker conventions.
+// The workflow / activity / schedule registration logic lives in the
+// importable skills/workerentry package so the umbrella's consolidated
+// adamaton-worker binary can install the same set. This main.go owns
+// only the per-process bootstrap (logger, pgxpool, Temporal client,
+// signal handling, self-registration into evo.workers).
 package main
 
 import (
@@ -25,6 +27,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/sirus20x6/adamaton-core/workerregistry"
+	"github.com/sirus20x6/adamaton-knowledge/skills/workerentry"
 	skillsworkflows "github.com/sirus20x6/adamaton-knowledge/skills/workflows"
 )
 
@@ -83,22 +86,18 @@ func main() {
 	}
 
 	w := worker.New(c, taskQueue, worker.Options{
-		Identity:                            "skills-worker",
-		MaxConcurrentActivityExecutionSize:  8,
+		Identity:                               "skills-worker",
+		MaxConcurrentActivityExecutionSize:     8,
 		MaxConcurrentWorkflowTaskExecutionSize: 8,
 	})
 
-	// PHASE2-REGISTER-WORKFLOWS — Phase 2A/2B/2C agents add their
-	// w.RegisterWorkflowWithOptions(...) calls here. Names must match
-	// the constants in skills/workflows/types.go so the dashboard's
-	// ExecuteWorkflow string lookups succeed.
-	registerWorkflows(w)
-
-	// PHASE2-REGISTER-ACTIVITIES — Phase 2A/2B/2C agents add their
-	// w.RegisterActivity(&xActivities{...}) calls here. Activity
-	// structs should hold their dependencies (pool, http client, logger)
-	// so workflow code stays thin.
-	registerActivities(w, pool, httpClient, logger)
+	workerentry.Register(ctx, w, workerentry.Deps{
+		Pool:       pool,
+		HTTPClient: httpClient,
+		Logger:     logger,
+		Temporal:   c,
+		TaskQueue:  taskQueue,
+	})
 
 	if sess, err := workerregistry.Register(ctx, pool, workerregistry.RegisterOptions{
 		Identity:       "skills-worker",
@@ -110,41 +109,11 @@ func main() {
 		defer sess.Close(context.Background())
 	}
 
-	// PHASE2C — agent C creates the "skills-check-all-daily" Temporal
-	// Schedule here, idempotent on collision via delegator/scheduler.go
-	// patterns (ErrScheduleExists is non-fatal).
-	if err := ensureSchedules(ctx, c, taskQueue, logger); err != nil {
-		logger.WithError(err).Warn("schedule bootstrap failed; worker continues")
-	}
-
 	logger.Info("skills-worker ready")
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		log.Fatalf("worker.Run: %v", err)
 	}
 	logger.Info("skills-worker stopped")
-}
-
-// registerWorkflows dispatches to the per-phase registration files
-// (registrations_sync.go, registrations_import.go, registrations_check.go).
-// Splitting registration across files kept Phase 2 agents from colliding
-// in this main.go while they ran in parallel.
-func registerWorkflows(w worker.Worker) {
-	registerSyncWorkflows(w)
-	registerImportWorkflows(w)
-	registerCheckWorkflows(w)
-}
-
-func registerActivities(w worker.Worker, pool *pgxpool.Pool, httpClient *http.Client, logger *logrus.Logger) {
-	registerSyncActivities(w, pool, httpClient, logger)
-	registerImportActivities(w, pool, httpClient, logger)
-	registerCheckActivities(w, pool, httpClient, logger)
-}
-
-// ensureSchedules registers the daily Temporal Schedule that fans out
-// CheckSkillSourceWorkflow over every skill with a source_url.
-// Idempotent on the schedule ID (re-create returns nil).
-func ensureSchedules(ctx context.Context, c client.Client, taskQueue string, logger *logrus.Logger) error {
-	return ensureCheckSchedule(ctx, c, taskQueue, logger)
 }
 
 func envOr(key, fallback string) string {
