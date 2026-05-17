@@ -27,17 +27,20 @@ type SearchHit struct {
 	Score         float64         `json:"score"`
 }
 
-// SearchInput names the knobs r2g supports. ``QueryText`` drives BM25
-// over the chunks.fts tsvector column; ``QueryVec`` drives the pgvector
+// SearchInput names the knobs r2g supports. “QueryText“ drives BM25
+// over the chunks.fts tsvector column; “QueryVec“ drives the pgvector
 // kNN. HybridSearch needs both populated; the legacy SemanticSearch +
 // FullTextSearch entry points use whichever they need. The
 // CollectionIDs filter matches what every existing caller passes today.
+// “SeedEntities“ is optional and, when non-empty, enables the
+// TGS-RAG Graph-to-Text vote channel inside HybridSearch.
 type SearchInput struct {
 	QueryVec      []float32
 	QueryText     string
 	Limit         int
 	CollectionIDs []uuid.UUID
 	DocumentID    *uuid.UUID
+	SeedEntities  []uuid.UUID // optional: enables TGS-RAG Graph-to-Text vote when non-empty
 }
 
 // SemanticSearch runs an ANN kNN over deepresearch.chunks.vec using
@@ -114,12 +117,12 @@ func SemanticSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]
 }
 
 // FullTextSearch runs a BM25-ish query against deepresearch.chunks.fts
-// (a stored tsvector generated from ``text`` with the english config).
-// Score is Postgres's ``ts_rank_cd`` cover-density rank — it weights
+// (a stored tsvector generated from “text“ with the english config).
+// Score is Postgres's “ts_rank_cd“ cover-density rank — it weights
 // term proximity inside the chunk, which works better for paragraph-
-// length chunks than the simpler ``ts_rank``. The plainto_tsquery
+// length chunks than the simpler “ts_rank“. The plainto_tsquery
 // helper coerces free-form user input into a safe tsquery (no operator
-// parsing surprises like ``C++`` blowing up the planner).
+// parsing surprises like “C++“ blowing up the planner).
 //
 // Why a separate function instead of a flag on SemanticSearch: ranking
 // math is incommensurable across the two backends, so the fusion has
@@ -183,6 +186,96 @@ func FullTextSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]
 	return out, nil
 }
 
+// GraphVoteSearch ranks chunks by how many of the supplied seed entities
+// (and their 1-hop graph neighbours) point at them via chunk_ids on
+// deepresearch.documents_entities / documents_relationships. Seed votes
+// are weighted 2; 1-hop neighbour votes are weighted 1.
+//
+// Empty input.SeedEntities returns (nil, nil) without touching the DB.
+// Errors are returned wrapped; the caller in HybridSearch surfaces them
+// as a warning rather than killing the request.
+//
+// This is the Graph-to-Text channel from TGS-RAG (arxiv 2605.05643).
+func GraphVoteSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]SearchHit, error) {
+	if len(in.SeedEntities) == 0 {
+		return nil, nil
+	}
+	limit := in.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 10
+	}
+
+	where := []string{"1=1"}
+	args := []any{in.SeedEntities}
+	if len(in.CollectionIDs) > 0 {
+		args = append(args, in.CollectionIDs)
+		where = append(where, fmt.Sprintf("c.collection_ids && $%d::uuid[]", len(args)))
+	}
+	if in.DocumentID != nil {
+		args = append(args, *in.DocumentID)
+		where = append(where, fmt.Sprintf("c.document_id = $%d", len(args)))
+	}
+	clause := strings.Join(where, " AND ")
+
+	q := fmt.Sprintf(`
+		WITH seeds AS (
+		    SELECT unnest($1::uuid[]) AS id
+		),
+		neighbors AS (
+		    SELECT DISTINCT
+		           CASE WHEN r.subject_id = s.id THEN r.object_id
+		                ELSE r.subject_id END AS id
+		    FROM seeds s
+		    JOIN deepresearch.documents_relationships r
+		      ON r.subject_id = s.id OR r.object_id = s.id
+		),
+		voters AS (
+		    SELECT id, 2 AS w FROM seeds
+		    UNION ALL
+		    SELECT id, 1 AS w FROM neighbors WHERE id IS NOT NULL
+		),
+		voted_chunks AS (
+		    SELECT unnest(e.chunk_ids) AS chunk_id, SUM(v.w)::int AS vote
+		    FROM voters v
+		    JOIN deepresearch.documents_entities e ON e.id = v.id
+		    GROUP BY chunk_id
+		)
+		SELECT c.id, c.document_id, c.owner_id, c.collection_ids,
+		       c.text, c.metadata,
+		       vc.vote::float8 AS score
+		FROM voted_chunks vc
+		JOIN deepresearch.chunks c ON c.id = vc.chunk_id
+		WHERE %s
+		ORDER BY vc.vote DESC, c.id ASC
+		LIMIT %d
+	`, clause, limit)
+
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query graph vote search: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SearchHit
+	for rows.Next() {
+		h := SearchHit{}
+		if err := rows.Scan(
+			&h.ID, &h.DocumentID, &h.OwnerID, &h.CollectionIDs,
+			&h.Text, &h.Metadata, &h.Score,
+		); err != nil {
+			return nil, fmt.Errorf("scan graph vote row: %w", err)
+		}
+		if h.CollectionIDs == nil {
+			h.CollectionIDs = []uuid.UUID{}
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate graph vote rows: %w", err)
+	}
+	return out, nil
+}
+
 // HybridSearch fuses pgvector kNN + BM25 (ts_rank_cd) with Reciprocal
 // Rank Fusion. RRF is the standard cheap fuser (Cormack et al. 2009);
 // score(d) = Σ 1/(k + rank_i(d)) across retrievers, with k=60 the
@@ -190,8 +283,12 @@ func FullTextSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]
 // retrievers, which is what makes it survive the vector-vs-tf-idf
 // scale mismatch that ruins naive weighted averaging.
 //
-// Each backend pulls ``2*Limit`` candidates so the fusion has a real
-// chance to reorder; the final result is trimmed back to ``Limit``.
+// When “in.SeedEntities“ is non-empty, GraphVoteSearch contributes a
+// third ranked list (the TGS-RAG Graph-to-Text channel) on equal RRF
+// footing with the other two.
+//
+// Each backend pulls “2*Limit“ candidates so the fusion has a real
+// chance to reorder; the final result is trimmed back to “Limit“.
 // Both backends run in parallel goroutines because they hit different
 // indexes and are independent.
 //
@@ -200,8 +297,9 @@ func FullTextSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]
 //     defer to SemanticSearch as a safety net.
 //   - If a backend errors, the other one's results are returned
 //     unchanged. The error from the failed half is logged via the
-//     returned ``warning`` map (one entry per failed source).
+//     returned “warning“ map (one entry per failed source).
 //   - If both error, we return the joined error.
+//   - Graph-vote failure is never fatal; it only emits a warning.
 func HybridSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]SearchHit, map[string]string, error) {
 	if len(in.QueryVec) == 0 {
 		return nil, nil, fmt.Errorf("hybrid: empty query vector")
@@ -228,13 +326,17 @@ func HybridSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]Se
 	deepIn.Limit = poolSize
 
 	var (
-		semHits, ftsHits []SearchHit
-		semErr, ftsErr   error
-		wg               sync.WaitGroup
+		semHits, ftsHits, voteHits []SearchHit
+		semErr, ftsErr, voteErr    error
+		wg                         sync.WaitGroup
 	)
 	wg.Add(2)
 	go func() { defer wg.Done(); semHits, semErr = SemanticSearch(ctx, pool, deepIn) }()
 	go func() { defer wg.Done(); ftsHits, ftsErr = FullTextSearch(ctx, pool, deepIn) }()
+	if len(in.SeedEntities) > 0 {
+		wg.Add(1)
+		go func() { defer wg.Done(); voteHits, voteErr = GraphVoteSearch(ctx, pool, deepIn) }()
+	}
 	wg.Wait()
 
 	warnings := map[string]string{}
@@ -244,14 +346,19 @@ func HybridSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]Se
 	if ftsErr != nil {
 		warnings["fts"] = ftsErr.Error()
 	}
+	if len(in.SeedEntities) > 0 && voteErr != nil {
+		warnings["graph_vote"] = voteErr.Error()
+	}
+	// Graph-vote is optional, so its failure does not contribute to the
+	// fatal-error guard below.
 	if semErr != nil && ftsErr != nil {
 		return nil, warnings, errors.Join(semErr, ftsErr)
 	}
 
 	// RRF: rank starts at 1 for the top hit in each list.
 	const k = 60.0
-	scores := make(map[uuid.UUID]float64, len(semHits)+len(ftsHits))
-	byID := make(map[uuid.UUID]SearchHit, len(semHits)+len(ftsHits))
+	scores := make(map[uuid.UUID]float64, len(semHits)+len(ftsHits)+len(voteHits))
+	byID := make(map[uuid.UUID]SearchHit, len(semHits)+len(ftsHits)+len(voteHits))
 	for rank, h := range semHits {
 		scores[h.ID] += 1.0 / (k + float64(rank+1))
 		if _, exists := byID[h.ID]; !exists {
@@ -259,6 +366,12 @@ func HybridSearch(ctx context.Context, pool *pgxpool.Pool, in SearchInput) ([]Se
 		}
 	}
 	for rank, h := range ftsHits {
+		scores[h.ID] += 1.0 / (k + float64(rank+1))
+		if _, exists := byID[h.ID]; !exists {
+			byID[h.ID] = h
+		}
+	}
+	for rank, h := range voteHits {
 		scores[h.ID] += 1.0 / (k + float64(rank+1))
 		if _, exists := byID[h.ID]; !exists {
 			byID[h.ID] = h

@@ -7,12 +7,36 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// queryStopWords is the inline stop-word set dropped during seed-entity
+// tokenization. Intentionally small — we only need to keep common English
+// connectives from ever hitting the ILIKE branch (e.g. "the" matches half
+// the corpus). Mention-rank biases real terms above any noise that slips
+// through anyway.
+//
+// Entries must match the tokenizer's post-split output: alphanumeric only,
+// length >= 3, lowercase. Contractions like "it's" are unreachable here —
+// the apostrophe is a splitter, so the contraction never appears as a
+// single token. Filter the surviving fragment instead (e.g. "won" for
+// "won't") if needed.
+var queryStopWords = map[string]struct{}{
+	"the": {}, "and": {}, "for": {}, "with": {}, "that": {}, "this": {},
+	"from": {}, "has": {}, "have": {}, "had": {}, "are": {}, "was": {},
+	"were": {}, "will": {}, "can": {}, "could": {}, "should": {}, "would": {},
+	"what": {}, "when": {}, "where": {}, "who": {}, "why": {}, "how": {},
+	"your": {}, "you": {}, "our": {}, "but": {}, "not": {}, "all": {},
+	"any": {}, "its": {}, "into": {}, "over": {}, "also": {},
+	"them": {}, "they": {}, "their": {}, "than": {}, "then": {}, "like": {},
+	"more": {}, "most": {}, "less": {}, "very": {}, "much": {},
+}
 
 // ErrCorpusNotFound bubbles up from graphrag_* queries so the route layer
 // can map to 404. The non-graphrag queries don't enforce corpus existence;
@@ -240,8 +264,8 @@ func QueryRelationshipsWithin(ctx context.Context, pool *pgxpool.Pool, names []s
 	out := []EntityRelationship{}
 	for rows.Next() {
 		var (
-			r        EntityRelationship
-			weight   *float64
+			r         EntityRelationship
+			weight    *float64
 			predicate *string
 		)
 		if err := rows.Scan(&r.Subject, &r.Object, &weight, &r.EdgeCount, &predicate); err != nil {
@@ -344,9 +368,9 @@ func QueryEntityMeta(ctx context.Context, pool *pgxpool.Pool, name string, corpu
 		GROUP BY e.name
 	`, schema, scopeInner, schema, scopeOuter)
 	var (
-		m            EntityMeta
-		category     *string
-		description  *string
+		m           EntityMeta
+		category    *string
+		description *string
 	)
 	if err := pool.QueryRow(ctx, q, args...).Scan(&m.Name, &category, &m.Mentions, &description); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -959,4 +983,121 @@ func upperASCII(s string) string {
 		b[i] = c
 	}
 	return string(b)
+}
+
+// SeedEntity is a query-derived candidate entity for TGS-RAG Graph-to-Text
+// Global Voting. ID and Name come from documents_entities; Mentions is the
+// total row count for that name across the (corpus-scoped) entity table.
+type SeedEntity struct {
+	ID       uuid.UUID
+	Name     string
+	Mentions int
+}
+
+// tokenizeQuery splits q into deduped lowercase tokens of length >= 3,
+// dropping queryStopWords. Order is preserved by first-occurrence. The
+// splitter treats any non-letter / non-digit rune as a separator, so
+// "GPT-4o" → ["gpt", "4o"] before the length filter drops "4o".
+//
+// Returns nil for an empty input, an input with no letters/digits, or
+// one whose every token is either too short or a stop-word. Extracted
+// from ExtractQuerySeedEntities so it can be unit-tested without a DB.
+func tokenizeQuery(q string) []string {
+	raw := strings.FieldsFunc(q, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	seen := map[string]struct{}{}
+	tokens := make([]string, 0, len(raw))
+	for _, t := range raw {
+		t = strings.ToLower(t)
+		if len(t) < 3 {
+			continue
+		}
+		if _, skip := queryStopWords[t]; skip {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		tokens = append(tokens, t)
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+	return tokens
+}
+
+// ExtractQuerySeedEntities tokenizes the query and looks up matching
+// entity names in deepresearch.documents_entities, scoped to a corpus
+// when corpusID != "". Used by TGS-RAG Graph-to-Text Global Voting at
+// query time — ILIKE-based so we don't burn an LLM call on every search.
+//
+// Tokens shorter than 3 chars and an inline stop-word set are dropped.
+// For each remaining token: prefer exact LOWER(name)=token; fall back
+// to name ILIKE '%'||token||'%'. Returns up to `limit` distinct seeds,
+// ordered by mentions DESC then name ASC.
+//
+// Returns an empty slice (nil error) when no seeds are found — callers
+// treat that as "skip the graph vote backend in HybridSearch".
+func ExtractQuerySeedEntities(ctx context.Context, pool *pgxpool.Pool, query string, corpusID string, limit int) ([]SeedEntity, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	tokens := tokenizeQuery(query)
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
+	schema, err := r2rSchema()
+	if err != nil {
+		return nil, err
+	}
+	// $1 tokens, $2 limit, $3 (if any) corpus.
+	scope, scopeArgs := corpusScope("e", corpusID, 3)
+	args := []any{tokens, limit}
+	args = append(args, scopeArgs...)
+	q := fmt.Sprintf(`
+		WITH q AS (
+		    SELECT DISTINCT lower(t) AS tok FROM unnest($1::text[]) AS t
+		),
+		hits AS (
+		    SELECT DISTINCT ON (lower(e.name))
+		           e.id,
+		           e.name,
+		           (SELECT COUNT(*)
+		              FROM %s.documents_entities e2
+		             WHERE lower(e2.name) = lower(e.name)) AS mentions
+		    FROM %s.documents_entities e
+		    JOIN q ON lower(e.name) = q.tok
+		           OR e.name ILIKE '%%' || q.tok || '%%'
+		    WHERE TRUE
+		      %s
+		)
+		SELECT id, name, mentions
+		FROM hits
+		ORDER BY mentions DESC, name ASC
+		LIMIT $2
+	`, schema, schema, scope)
+	rows, err := pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("extract query seed entities: %w", err)
+	}
+	defer rows.Close()
+	out := []SeedEntity{}
+	for rows.Next() {
+		var s SeedEntity
+		if err := rows.Scan(&s.ID, &s.Name, &s.Mentions); err != nil {
+			return nil, fmt.Errorf("extract query seed entities: %w", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("extract query seed entities: %w", err)
+	}
+	return out, nil
 }

@@ -36,7 +36,7 @@ platform wrapper to Go; until then it stays Python.
 | POST   | `/v3/documents`               | `platform/backend/app/research/swarm.py`, `platform/backend/app/api/sources.py`, `platform/backend/app/workers/hi_worker.py`, `evo/reindex/activities/ingest.go` (indirectly via `/platform/sources/ingest`) | Yes | Multipart or JSON. Returns immediately; chunks/embeddings written async in current R2R. r2g should make this synchronous. |
 | POST   | `/v3/documents/{id}/extract`  | `evo/reindex/activities/ingest.go:259`, `platform/backend/app/workers/hi_worker.py`, `platform/backend/app/kg/live.py` | Yes | LLM-driven entity + relationship extraction. Today fires off Hatchet workflow under R2R; r2g should bound concurrency and gate on chunks-actually-present. |
 | DELETE | `/v3/documents/{id}`          | `evo/reindex/activities/ingest.go:303` | Yes | 404 → treat as success. Used during reindex rewire to clean up old doc. |
-| POST   | `/v3/retrieval/search`        | `evo/dashboard/apiserver/skills_search_graph.go:119`, `platform/backend/app/research/swarm.py` | Yes | Hybrid search (BM25 + embedding). Pgvector ANN + tsvector FTS. |
+| POST   | `/v3/retrieval/search`        | `evo/dashboard/apiserver/skills_search_graph.go:119`, `platform/backend/app/research/swarm.py` | Yes | Hybrid search (BM25 + embedding). Pgvector ANN + tsvector FTS. Optional `search_settings.graph_vote: bool` overrides `R2G_GRAPH_VOTE_ENABLED` for the request (TGS-RAG Graph-to-Text). |
 | GET    | `/v3/documents`               | SPA `src/api/library.ts:284` | Yes | List with pagination, filter by collection_id and ingestion_status. |
 | GET    | `/v3/chunks`                  | SPA `src/features/library/DocumentReader.tsx:95` | Yes | Filter by document_id, paginated. |
 

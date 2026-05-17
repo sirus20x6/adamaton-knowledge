@@ -116,6 +116,9 @@ func run() error {
 		logger.Warn("OPENAI_API_BASE not set; /v3/documents/{id}/extract will return 503")
 	}
 
+	graphVoteOn := os.Getenv("R2G_GRAPH_VOTE_ENABLED") != "false" && os.Getenv("R2G_GRAPH_VOTE_ENABLED") != "0"
+	logger.WithField("enabled", graphVoteOn).Info("graph_vote (TGS-RAG Graph-to-Text) ready")
+
 	metricsReg := prometheus.NewRegistry()
 	metrics := observe.NewMetrics(metricsReg)
 
@@ -131,7 +134,7 @@ func run() error {
 	routes.RegisterCorpora(r, pool, logger)
 	routes.RegisterGraph(r, pool, logger)
 	if embedder != nil {
-		routes.RegisterSearch(r, pool, embedder, rerankerClient, logger)
+		routes.RegisterSearch(r, pool, embedder, rerankerClient, metrics, logger)
 		routes.RegisterIngest(r, pool, embedder, chunker, logger)
 		routes.RegisterSources(r, pool, embedder, chunker, logger)
 	}
