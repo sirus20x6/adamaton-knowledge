@@ -1,16 +1,26 @@
-# Mirrors dashboard/Dockerfile: cross-compile on host, bake a tiny
-# Alpine runtime image. The binary is statically linked (CGO_ENABLED=0)
-# so the runtime needs nothing beyond ca-certificates + tzdata.
+# skills-worker multi-stage Dockerfile.
 #
-# Build with the wrapper script:
-#   ./skills/scripts/deploy.sh
-# Or manually (run from the repo root):
-#   make pi-skills-worker
-#   docker buildx build --platform linux/arm64 \
-#     -t evo-skills-worker:dev --output type=docker \
-#     -f skills/Dockerfile bin/
+# Build context MUST be the umbrella root (bin/adam ship sets it to "."),
+# because skills/go.mod uses replace directives like ../../core that
+# point at sibling sub-repos. --platform=$BUILDPLATFORM pins this stage
+# to the workstation's native arch (amd64); GOARCH=$TARGETARCH cross-
+# compiles to whatever the runtime image will be.
+FROM --platform=$BUILDPLATFORM golang:1.25-trixie AS build
+ARG TARGETARCH
+WORKDIR /src
+COPY go.work go.work.sum* ./
+COPY core ./core
+COPY knowledge ./knowledge
+COPY deepresearch ./deepresearch
+COPY delegator ./delegator
+COPY evolve ./evolve
+COPY platform ./platform
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags='-s -w' \
+    -o /out/skills-worker ./knowledge/skills/cmd/skills-worker
 
 FROM alpine:3.21
 RUN apk --no-cache add ca-certificates tzdata
-COPY skills-worker.arm64 /usr/local/bin/skills-worker
+COPY --from=build /out/skills-worker /usr/local/bin/skills-worker
 ENTRYPOINT ["/usr/local/bin/skills-worker"]
