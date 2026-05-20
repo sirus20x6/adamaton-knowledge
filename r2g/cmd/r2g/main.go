@@ -145,6 +145,9 @@ func run() error {
 	routes.RegisterFigures(r, pool, logger)
 	routes.RegisterCorpora(r, pool, logger)
 	routes.RegisterGraph(r, pool, logger)
+	// Episodes accept writes with or without an embedder (NULL vector
+	// when absent; the consolidator embeds later), so register always.
+	routes.RegisterEpisodes(r, pool, embedder, logger)
 	if embedder != nil {
 		routes.RegisterSearch(r, pool, embedder, rerankerClient, metrics, logger)
 		routes.RegisterIngest(r, pool, embedder, chunker, logger)
