@@ -12,6 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/tarwalk"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // MaxMemberBytes caps per-figure raw bytes. Matches _MAX_MEMBER_BYTES in
@@ -45,20 +46,6 @@ type FigureMeta struct {
 	SrcPaths []string
 }
 
-// FigureRow is one materialised row ready for store.InsertFigures.
-type FigureRow struct {
-	DocumentID    uuid.UUID
-	Label         string
-	SectionLabel  string
-	CaptionTex    string
-	CaptionText   string
-	SrcPath       string
-	RawFormat     string
-	RawBytes      []byte
-	ThumbnailPNG  []byte
-	OrderInDoc    int
-}
-
 // ExtractAndPersist is the entry point called from the ingest route
 // after the main document + chunks transaction commits.
 //
@@ -79,7 +66,7 @@ func ExtractAndPersist(
 	tarball []byte,
 	metas []FigureMeta,
 	logger *logrus.Logger,
-	inserter func(ctx context.Context, pool *pgxpool.Pool, rows []FigureRow) (int, error),
+	inserter func(ctx context.Context, pool *pgxpool.Pool, rows []store.FigureRow) (int, error),
 ) (int, error) {
 	if len(metas) == 0 || len(tarball) == 0 {
 		return 0, nil
@@ -92,7 +79,7 @@ func ExtractAndPersist(
 		return 0, nil
 	}
 
-	rows := make([]FigureRow, 0, len(metas))
+	rows := make([]store.FigureRow, 0, len(metas))
 	order := 0
 	for _, meta := range metas {
 		for _, src := range meta.SrcPaths {
@@ -116,7 +103,7 @@ func ExtractAndPersist(
 				}
 				thumb = nil
 			}
-			rows = append(rows, FigureRow{
+			rows = append(rows, store.FigureRow{
 				DocumentID:   docID,
 				Label:        meta.Label,
 				CaptionTex:   "", // latex2text already delatex'd the caption
