@@ -10,7 +10,10 @@
 //	R2G_DATABASE_URL    — postgres DSN to the shared deepresearch DB
 //	R2G_LOG_LEVEL       — logrus level (default "info")
 //	R2G_LOG_FORMAT      — "text" or "json" (default "text")
-//	BGE_SIDECAR_URL     — OpenAI-compatible embeddings sidecar
+//	BGE_EMBED_URL       — OpenAI-compatible embeddings sidecar (preferred;
+//	                      points at the native llama-server bge-embed)
+//	BGE_SIDECAR_URL     — legacy fallback for the same; deprecated in
+//	                      favour of BGE_EMBED_URL
 //	R2G_EMBED_MODEL     — model name to send to the sidecar (default "bge-m3")
 //	OPENAI_API_BASE     — OpenAI-compatible chat-completions endpoint (vLLM)
 //	OPENAI_API_KEY      — auth token for the LLM endpoint (often a placeholder)
@@ -73,7 +76,13 @@ func run() error {
 	defer pool.Close()
 	logger.WithField("port", port).Info("postgres pool ready")
 
-	embedURL := os.Getenv("BGE_SIDECAR_URL")
+	// BGE_EMBED_URL is the post-Python-elim variable; BGE_SIDECAR_URL is
+	// the legacy name kept as a fallback so callers that haven't been
+	// re-deployed continue to work against the old sidecar.
+	embedURL := os.Getenv("BGE_EMBED_URL")
+	if embedURL == "" {
+		embedURL = os.Getenv("BGE_SIDECAR_URL")
+	}
 	embedModel := envOr("R2G_EMBED_MODEL", "bge-m3")
 	var embedder *embeddings.Client
 	if embedURL != "" {
@@ -83,7 +92,7 @@ func run() error {
 			"model": embedModel,
 		}).Info("embeddings client ready")
 	} else {
-		logger.Warn("BGE_SIDECAR_URL not set; /v3/retrieval/search will return 503")
+		logger.Warn("neither BGE_EMBED_URL nor BGE_SIDECAR_URL set; /v3/retrieval/search will return 503")
 	}
 
 	// Stage-2 reranker sidecar. Absent ``R2G_RERANKER_URL`` -> search

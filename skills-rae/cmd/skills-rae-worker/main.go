@@ -7,7 +7,9 @@
 // Configuration:
 //
 //	SKILLS_RAE_DSN          — postgres DSN (shared evo DB)
-//	BGE_SIDECAR_URL         — bge-m3 embeddings sidecar
+//	BGE_EMBED_URL           — bge-m3 embeddings sidecar (preferred; points
+//	                          at the native llama-server bge-embed)
+//	BGE_SIDECAR_URL         — legacy fallback for the same; deprecated
 //	CLUSTER_SIDECAR_URL     — UMAP+HDBSCAN sidecar (/v1/cluster + /v1/assign)
 //	SKILLS_RAE_EMBED_MODEL  — model name (default "bge-m3")
 //	TEMPORAL_ADDRESS        — temporal frontend (default localhost:7233)
@@ -58,10 +60,16 @@ func run() error {
 	if dsn == "" {
 		return errors.New("SKILLS_RAE_DSN is required")
 	}
-	embedURL := os.Getenv("BGE_SIDECAR_URL")
+	// BGE_EMBED_URL is the post-Python-elim variable (points at the new
+	// llama-server bge-embed catalog service); BGE_SIDECAR_URL is the
+	// legacy name kept as a fallback during the migration.
+	embedURL := os.Getenv("BGE_EMBED_URL")
+	if embedURL == "" {
+		embedURL = os.Getenv("BGE_SIDECAR_URL")
+	}
 	embedModel := envOr("SKILLS_RAE_EMBED_MODEL", "bge-m3")
 	if embedURL == "" {
-		return errors.New("BGE_SIDECAR_URL is required")
+		return errors.New("BGE_EMBED_URL or BGE_SIDECAR_URL is required")
 	}
 	clusterURL := os.Getenv("CLUSTER_SIDECAR_URL")
 	if clusterURL == "" {
