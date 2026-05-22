@@ -22,6 +22,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/sirus20x6/adamaton-knowledge/r2g/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/reindex/activities"
 	reindexworkflows "github.com/sirus20x6/adamaton-knowledge/reindex/workflows"
 )
@@ -37,6 +39,12 @@ type Deps struct {
 	PlatformURL  string
 	R2GURL       string
 	ArxivSkipURL string
+	// EmbedURL is the OpenAI-compatible embedding sidecar the worker-side
+	// ChunkEmbedPersist activity calls. Empty disables ChunkEmbedPersist
+	// (it returns a non-retryable NoEmbedder error). EmbedModel defaults
+	// to "bge-m3" when empty.
+	EmbedURL   string
+	EmbedModel string
 }
 
 // RegisterIngest wires the corpus + paper workflows and the
@@ -68,11 +76,53 @@ func RegisterIngest(w worker.Worker, d Deps) {
 	w.RegisterActivityWithOptions(skippedActs.MarkArxivSkipped,
 		activity.RegisterOptions{Name: "MarkArxivSkipped"})
 
+	// Split-ingest activities: PrepareArxivDocument (fetch+parse via r2g),
+	// ChunkEmbedPersist (chunk+embed+persist on THIS node), and
+	// ExtractArxivFigures (figure extract via r2g). The legacy
+	// IngestArxivPaper above stays registered for one release so a
+	// rollback to the old single-call workflow still has a worker.
+	embedActs := buildEmbedDeps(d)
+	w.RegisterActivityWithOptions(ingestActs.PrepareArxivDocument,
+		activity.RegisterOptions{Name: "PrepareArxivDocument"})
+	w.RegisterActivityWithOptions(embedActs.ChunkEmbedPersist,
+		activity.RegisterOptions{Name: "ChunkEmbedPersist"})
+	w.RegisterActivityWithOptions(ingestActs.ExtractArxivFigures,
+		activity.RegisterOptions{Name: "ExtractArxivFigures"})
+
 	d.Logger.WithFields(logrus.Fields{
 		"queue":      reindexworkflows.TaskQueueIngest,
 		"platform":   d.PlatformURL,
 		"arxiv_skip": d.ArxivSkipURL,
+		"embed_url":  d.EmbedURL,
 	}).Info("registered ingest-side workflows + activities")
+}
+
+// buildEmbedDeps constructs the worker-side embedding activity deps. The
+// embeddings client is nil when no sidecar URL is configured (ChunkEmbedPersist
+// then fails fast and non-retryably). The chunker is a process-wide tiktoken
+// singleton; an init failure is logged but left non-fatal so the rest of the
+// ingest queue still registers.
+func buildEmbedDeps(d Deps) *activities.EmbedDeps {
+	var embedder *embeddings.Client
+	if d.EmbedURL != "" {
+		model := d.EmbedModel
+		if model == "" {
+			model = "bge-m3"
+		}
+		embedder = embeddings.NewClient(d.EmbedURL, model)
+	} else {
+		d.Logger.Warn("no embed sidecar URL configured; ChunkEmbedPersist will fail until BGE_EMBED_URL is set")
+	}
+	chunker, err := chunking.Default()
+	if err != nil {
+		d.Logger.WithError(err).Error("chunker init failed; ChunkEmbedPersist will fail")
+	}
+	return &activities.EmbedDeps{
+		Embedder: embedder,
+		Chunker:  chunker,
+		Pool:     d.Pool,
+		Logger:   d.Logger,
+	}
 }
 
 // RegisterExtract wires the long-running ExtractCorpusWorkflow daemon

@@ -22,12 +22,12 @@ var arxivIDPattern = regexp.MustCompile(`^([A-Za-z\-\.]+/[0-9]{7}|[0-9]+\.[0-9]+
 // ReindexArxivPaperWorkflow handles a single arxiv paper end-to-end.
 // Mirrors the bash script body on lines 64-173, one activity per phase:
 //
-//	1. Validate the arxiv id (SideEffect — no network)
-//	2. Generate the new document UUID (SideEffect — non-deterministic)
-//	3. IngestArxivPaper — POST /platform/sources/ingest
-//	4. If source_tier != "latex": DeleteR2RDocument(new) + skip
-//	5. RewireCorpusDocument — UPDATE platform.corpus_documents
-//	6. DeleteR2RDocument(old) — best-effort cleanup
+//  1. Validate the arxiv id (SideEffect — no network)
+//  2. Generate the new document UUID (SideEffect — non-deterministic)
+//  3. IngestArxivPaper — POST /platform/sources/ingest
+//  4. If source_tier != "latex": DeleteR2RDocument(new) + skip
+//  5. RewireCorpusDocument — UPDATE platform.corpus_documents
+//  6. DeleteR2RDocument(old) — best-effort cleanup
 //
 // Returns a PaperResult either way. Skipped=true covers the bash
 // script's "skip_invalid" / "no_latex" cases; Failed (an error return)
@@ -91,7 +91,8 @@ func ReindexArxivPaperWorkflow(ctx workflow.Context, in ReindexArxivPaperInput) 
 	}
 	res.NewDocID = newDocID
 
-	// Step 3: ingest. The retry policy here is unlimited (MaxAttempts=0,
+	// Step 3: prepare (arxiv fetch + parse only, no persist). The retry
+	// policy here is unlimited (MaxAttempts=0,
 	// 5s/2x/120s backoff, ScheduleToClose=24h) so a backend outage
 	// during deploy turns into a quiet pause rather than a paper-burning
 	// failure. Each attempt fails fast on `dial connection refused`
@@ -99,75 +100,135 @@ func ReindexArxivPaperWorkflow(ctx workflow.Context, in ReindexArxivPaperInput) 
 	// periodically" pattern using the real ingest endpoint as the
 	// canary — no separate health endpoint needed, no extra load on
 	// an already-saturated backend.
-	ingestCtx := workflow.WithActivityOptions(ctx, ingestActivityOptions())
-	type ingestInputT struct {
+	prepareCtx := workflow.WithActivityOptions(ctx, ingestActivityOptions())
+	type prepareInputT struct {
 		ArxivID  string `json:"arxiv_id"`
 		NewDocID string `json:"new_doc_id"`
-		DryRun   bool   `json:"dry_run,omitempty"`
 	}
-	type ingestResultT struct {
-		OK          bool   `json:"ok"`
-		SourceTier  string `json:"source_tier"`
-		FigureCount int    `json:"figure_count"`
-		SizeBytes   int64  `json:"size_bytes"`
-		Detail      string `json:"detail,omitempty"`
+	type prepareResultT struct {
+		OK         bool           `json:"ok"`
+		SourceTier string         `json:"source_tier"`
+		DocType    string         `json:"doctype"`
+		Text       string         `json:"text"`
+		Title      string         `json:"title"`
+		SizeBytes  int64          `json:"size_bytes"`
+		HasFigures bool           `json:"has_figures"`
+		Metadata   map[string]any `json:"metadata"`
+		Detail     string         `json:"detail"`
 	}
-	var ing ingestResultT
-	err := workflow.ExecuteActivity(ingestCtx, "IngestArxivPaper", ingestInputT{
+	var prep prepareResultT
+	err := workflow.ExecuteActivity(prepareCtx, "PrepareArxivDocument", prepareInputT{
 		ArxivID:  in.ArxivID,
 		NewDocID: newDocID,
-		DryRun:   in.DryRun,
-	}).Get(ingestCtx, &ing)
+	}).Get(prepareCtx, &prep)
 	if err != nil {
-		logger.Warn("IngestArxivPaper failed", "arxiv", in.ArxivID, "error", err)
+		logger.Warn("PrepareArxivDocument failed", "arxiv", in.ArxivID, "error", err)
 		return res, err
 	}
-	res.SourceTier = ing.SourceTier
-	res.FigureCount = ing.FigureCount
-	res.SizeBytes = ing.SizeBytes
+	res.SourceTier = prep.SourceTier
+	res.SizeBytes = prep.SizeBytes
 
-	if !ing.OK {
-		// Platform reported a fetch failure. Bash treated this as a
-		// FAIL counter bump (line 117) but the work item wasn't retried
-		// — same outcome here, modulo: we mark Skipped rather than
-		// returning an error so the parent counts it once. The bash
-		// version also left the new R2R doc id unallocated on the
-		// platform side (the POST never created it), so no cleanup
-		// is needed.
+	if !prep.OK {
+		// r2g couldn't fetch/parse the paper. Nothing was persisted, so
+		// (unlike the old ingest path) there's no doc to clean up; mark
+		// Skipped so the parent counts it once.
 		res.Skipped = true
-		res.SkipReason = "ingest_not_ok"
-		logger.Info("paper skipped: ingest reported not-ok",
+		res.SkipReason = "prepare_not_ok"
+		logger.Info("paper skipped: prepare reported not-ok",
 			"arxiv", in.ArxivID,
-			"detail", ing.Detail,
+			"detail", prep.Detail,
 		)
-		recordSkip(ctx, in.ArxivID, "ingest_not_ok", logger)
+		recordSkip(ctx, in.ArxivID, "prepare_not_ok", logger)
 		return res, nil
 	}
 
 	delCtx := workflow.WithActivityOptions(ctx, deleteActivityOptions())
 
-	// Step 4: if the platform couldn't get the LaTeX source it falls
-	// back to PDF/HTML. Bash's behaviour: delete the freshly-ingested
-	// doc and move on (lines 126-135). Mirror that here.
-	if ing.SourceTier != "latex" {
-		if err := workflow.ExecuteActivity(delCtx, "DeleteR2RDocument", newDocID).Get(delCtx, nil); err != nil {
-			// Cleanup failure is non-fatal — the doc may already be
-			// gone, or a later sweep can pick it up. Log + continue
-			// to skip path so the workflow doesn't fail just because
-			// we couldn't tidy up.
-			logger.Warn("DeleteR2RDocument(new) failed during skip cleanup",
-				"new_doc", newDocID,
-				"error", err,
-			)
-		}
+	// Step 4: non-latex tiers (ar5iv/vanity/pdf) aren't reindexed — the
+	// bash original dropped them. /prepare didn't persist anything, so
+	// unlike the old ingest path there's no freshly-created doc to delete.
+	if prep.SourceTier != "latex" {
 		res.Skipped = true
 		res.SkipReason = "not_latex"
 		logger.Info("paper skipped: source_tier != latex",
 			"arxiv", in.ArxivID,
-			"tier", ing.SourceTier,
+			"tier", prep.SourceTier,
 		)
 		recordSkip(ctx, in.ArxivID, "not_latex", logger)
 		return res, nil
+	}
+
+	// Dry run stops here: fetch + parse + tier check happened, but we
+	// don't persist, rewire, or delete anything.
+	if in.DryRun {
+		logger.Info("dry-run: prepared but not persisting",
+			"arxiv", in.ArxivID,
+			"tier", prep.SourceTier,
+		)
+		return res, nil
+	}
+
+	// Step 4b: chunk + embed + persist ON THE WORKER NODE. The embedding
+	// step is now a Temporal activity (per-batch heartbeat + retry,
+	// visible in history) instead of synchronous work inside the r2g web
+	// process. Vectors are produced and persisted in-process, so nothing
+	// large crosses an activity boundary.
+	cepCtx := workflow.WithActivityOptions(ctx, chunkEmbedPersistOptions())
+	type chunkEmbedInputT struct {
+		DocumentID string         `json:"document_id"`
+		Title      string         `json:"title"`
+		DocType    string         `json:"doctype"`
+		Text       string         `json:"text"`
+		SizeBytes  int64          `json:"size_bytes"`
+		Metadata   map[string]any `json:"metadata,omitempty"`
+	}
+	type chunkEmbedResultT struct {
+		Chunks      int    `json:"chunks"`
+		TotalTokens int    `json:"total_tokens"`
+		Model       string `json:"model"`
+	}
+	var cep chunkEmbedResultT
+	if err := workflow.ExecuteActivity(cepCtx, "ChunkEmbedPersist", chunkEmbedInputT{
+		DocumentID: newDocID,
+		Title:      prep.Title,
+		DocType:    prep.DocType,
+		Text:       prep.Text,
+		SizeBytes:  prep.SizeBytes,
+		Metadata:   prep.Metadata,
+	}).Get(cepCtx, &cep); err != nil {
+		logger.Warn("ChunkEmbedPersist failed", "arxiv", in.ArxivID, "error", err)
+		return res, err
+	}
+	logger.Info("paper chunk+embed+persist done",
+		"arxiv", in.ArxivID,
+		"chunks", cep.Chunks,
+		"model", cep.Model,
+	)
+
+	// Step 4c: figures (eprint only, best-effort). r2g re-fetches the
+	// tarball and runs the MuPDF extractor; a failure here doesn't fail
+	// the paper since the document + chunks are already committed.
+	if prep.HasFigures {
+		figCtx := workflow.WithActivityOptions(ctx, figuresActivityOptions())
+		type figuresInputT struct {
+			ArxivID    string `json:"arxiv_id"`
+			DocumentID string `json:"document_id"`
+		}
+		type figuresResultT struct {
+			Figures int `json:"figures"`
+		}
+		var fig figuresResultT
+		if err := workflow.ExecuteActivity(figCtx, "ExtractArxivFigures", figuresInputT{
+			ArxivID:    in.ArxivID,
+			DocumentID: newDocID,
+		}).Get(figCtx, &fig); err != nil {
+			logger.Warn("ExtractArxivFigures failed (best-effort)",
+				"arxiv", in.ArxivID,
+				"error", err,
+			)
+		} else {
+			res.FigureCount = fig.Figures
+		}
 	}
 
 	// Step 5: swap the corpus pointer. This is the only state change
@@ -265,6 +326,43 @@ func ingestActivityOptions() workflow.ActivityOptions {
 			BackoffCoefficient: 2.0,
 			MaximumInterval:    120 * time.Second,
 			MaximumAttempts:    0,
+		},
+	}
+}
+
+// chunkEmbedPersistOptions tunes ChunkEmbedPersist — the worker-side
+// chunk + embed + persist activity. 600s StartToClose covers a large paper
+// embedded in 64-chunk batches against a contended BGE sidecar; the
+// activity heartbeats every 15s so the 60s HeartbeatTimeout catches a
+// genuinely stuck worker. Retry profile mirrors skills-rae's EmbedBatch
+// (5 attempts, 1s→30s) — the whole activity retries idempotently because
+// store.InsertDocumentWithChunks clears stale chunks for the doc id first.
+func chunkEmbedPersistOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 600 * time.Second,
+		HeartbeatTimeout:    60 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    1 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    30 * time.Second,
+			MaximumAttempts:    5,
+		},
+	}
+}
+
+// figuresActivityOptions tunes ExtractArxivFigures. Best-effort and
+// eprint-only: r2g re-fetches the tarball and runs MuPDF, so 300s is ample.
+// 3 attempts because a failure is non-fatal (the doc + chunks are already
+// committed); we don't want to spin forever on a flaky figure extract.
+func figuresActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 300 * time.Second,
+		HeartbeatTimeout:    60 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    30 * time.Second,
+			MaximumAttempts:    3,
 		},
 	}
 }

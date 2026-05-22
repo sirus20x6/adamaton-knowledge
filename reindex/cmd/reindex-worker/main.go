@@ -70,6 +70,11 @@ func main() {
 	// deepresearch ingest pipeline runs. Empty disables the preflight
 	// (fail-open: the slow path still produces the right answer).
 	arxivSkipURL := os.Getenv("ARXIV_SKIP_URL")
+	// Embedding sidecar for the worker-side ChunkEmbedPersist activity.
+	// Prefer the native llama-server endpoint (BGE_EMBED_URL); fall back to
+	// the legacy Python sidecar (BGE_SIDECAR_URL) during the migration.
+	embedURL := envOr("BGE_EMBED_URL", os.Getenv("BGE_SIDECAR_URL"))
+	embedModel := envOr("REINDEX_EMBED_MODEL", "bge-m3")
 
 	ingestConcurrency := envInt("REINDEX_INGEST_CONCURRENCY", defaultIngestConcurrency)
 	extractConcurrency := envInt("REINDEX_EXTRACT_CONCURRENCY", defaultExtractConcurrency)
@@ -142,6 +147,8 @@ func main() {
 		PlatformURL:  platformURL,
 		R2GURL:       r2gURL,
 		ArxivSkipURL: arxivSkipURL,
+		EmbedURL:     embedURL,
+		EmbedModel:   embedModel,
 	}
 	workerentry.RegisterIngest(ingestW, deps)
 	workerentry.RegisterExtract(extractW, deps)
