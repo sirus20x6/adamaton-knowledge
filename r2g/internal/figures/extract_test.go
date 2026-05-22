@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
+
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // minimal 4x4 png to seed the synthetic tarball.
@@ -64,8 +66,8 @@ func TestExtractAndPersist_TwoFiguresResolved(t *testing.T) {
 		{Label: "fig:a", Caption: "first", SrcPaths: []string{"a.png"}},
 		{Label: "fig:b", Caption: "second", SrcPaths: []string{"figures/results.png"}},
 	}
-	var got []FigureRow
-	stub := func(_ context.Context, _ *pgxpool.Pool, rows []FigureRow) (int, error) {
+	var got []store.FigureRow
+	stub := func(_ context.Context, _ *pgxpool.Pool, rows []store.FigureRow) (int, error) {
 		got = append(got, rows...)
 		return len(rows), nil
 	}
@@ -104,8 +106,8 @@ func TestExtractAndPersist_ExtensionFallback(t *testing.T) {
 	metas := []FigureMeta{
 		{Label: "fig:x", SrcPaths: []string{"figures/diagram"}},
 	}
-	var got []FigureRow
-	stub := func(_ context.Context, _ *pgxpool.Pool, rows []FigureRow) (int, error) {
+	var got []store.FigureRow
+	stub := func(_ context.Context, _ *pgxpool.Pool, rows []store.FigureRow) (int, error) {
 		got = append(got, rows...)
 		return len(rows), nil
 	}
@@ -125,8 +127,8 @@ func TestExtractAndPersist_UnresolvableDropped(t *testing.T) {
 		{Label: "fig:nope", SrcPaths: []string{"missing.png"}},
 		{Label: "fig:ok", SrcPaths: []string{"a.png"}},
 	}
-	var got []FigureRow
-	stub := func(_ context.Context, _ *pgxpool.Pool, rows []FigureRow) (int, error) {
+	var got []store.FigureRow
+	stub := func(_ context.Context, _ *pgxpool.Pool, rows []store.FigureRow) (int, error) {
 		got = append(got, rows...)
 		return len(rows), nil
 	}
@@ -144,7 +146,7 @@ func TestExtractAndPersist_UnresolvableDropped(t *testing.T) {
 
 func TestExtractAndPersist_MalformedTarballIsEmpty(t *testing.T) {
 	metas := []FigureMeta{{Label: "fig:a", SrcPaths: []string{"a.png"}}}
-	stub := func(_ context.Context, _ *pgxpool.Pool, rows []FigureRow) (int, error) {
+	stub := func(_ context.Context, _ *pgxpool.Pool, rows []store.FigureRow) (int, error) {
 		t.Fatalf("inserter called with garbage tarball: %d rows", len(rows))
 		return 0, nil
 	}

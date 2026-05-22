@@ -4,11 +4,31 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/figures"
 )
+
+// FigureRow is one materialised figure row ready for InsertFigures. It lives
+// in store (not internal/figures) on purpose: importing store must NOT drag
+// in the go-fitz/MuPDF thumbnail code, because go-fitz pulls purego, which
+// emits //go:cgo_import_dynamic directives that force a dynamically-linked
+// (glibc) binary even under CGO_ENABLED=0. The reindex ChunkEmbedPersist
+// activity imports store and runs on the static musl/alpine worker, so the
+// store package has to stay cgo/purego-free. internal/figures builds these
+// rows and passes them to InsertFigures.
+type FigureRow struct {
+	DocumentID   uuid.UUID
+	Label        string
+	SectionLabel string
+	CaptionTex   string
+	CaptionText  string
+	SrcPath      string
+	RawFormat    string
+	RawBytes     []byte
+	ThumbnailPNG []byte
+	OrderInDoc   int
+}
 
 // InsertFigures writes the supplied rows into platform.document_figures.
 // Single transaction, one INSERT per row to stay consistent with the
@@ -20,7 +40,7 @@ import (
 // primary id, and the Python path didn't dedupe either. Re-ingests of
 // the same document will create duplicate rows — the calling code is
 // expected to DELETE existing rows first if it wants to refresh.
-func InsertFigures(ctx context.Context, pool *pgxpool.Pool, rows []figures.FigureRow) (int, error) {
+func InsertFigures(ctx context.Context, pool *pgxpool.Pool, rows []FigureRow) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
@@ -86,12 +106,6 @@ func nullableBytes(b []byte) any {
 		return nil
 	}
 	return b
-}
-
-// Compile-time check that InsertFigures has the signature the figures
-// package's inserter parameter expects.
-var _ = func() func(context.Context, *pgxpool.Pool, []figures.FigureRow) (int, error) {
-	return InsertFigures
 }
 
 // Tx is exposed so external callers can wrap multiple writes in one
