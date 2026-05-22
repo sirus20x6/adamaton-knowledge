@@ -94,6 +94,12 @@ func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error
 	return out, nil
 }
 
+// Model returns the model name the client sends to the sidecar. Callers
+// that persist or report which model produced a vector (e.g. the reindex
+// ChunkEmbedPersist activity) read it from here so the model string stays
+// single-sourced at construction.
+func (c *Client) Model() string { return c.model }
+
 // EmbedOne is the single-input convenience wrapper.
 func (c *Client) EmbedOne(ctx context.Context, input string) ([]float32, error) {
 	out, err := c.Embed(ctx, []string{input})

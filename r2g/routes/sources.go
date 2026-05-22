@@ -21,9 +21,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
+	"github.com/sirus20x6/adamaton-knowledge/r2g/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/arxiv"
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/chunking"
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/ingestpipeline"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/upload"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
@@ -44,6 +44,13 @@ func RegisterSources(
 	r.HandleFunc("/platform/sources/upload", sourcesUploadHandler(logger)).Methods(http.MethodPost)
 	r.HandleFunc("/platform/sources/ingest",
 		sourcesIngestHandler(pool, embedder, chunker, logger)).Methods(http.MethodPost)
+	// Split-ingest endpoints for the reindex Temporal pipeline (see
+	// prepare.go): /prepare fetches+parses without persisting, /figures
+	// runs the cgo figure extractor after the worker has persisted the doc.
+	r.HandleFunc("/platform/sources/prepare",
+		sourcesPrepareHandler(logger)).Methods(http.MethodPost)
+	r.HandleFunc("/platform/sources/figures",
+		sourcesFiguresHandler(pool, logger)).Methods(http.MethodPost)
 	// Numeric-id route -- the regex constraint forbids "kinds" etc. from
 	// matching even if registration order were different.
 	r.HandleFunc("/platform/sources/{id:[0-9]+}", sourcesGetHandler(pool, logger)).Methods(http.MethodGet)
@@ -276,33 +283,11 @@ func ingestArxiv(
 		docID = uuid.New()
 	}
 
-	safeID := strings.ReplaceAll(arxivID, "/", "_")
-	filename := safeID
-	switch doc.SourceTier {
-	case "latex":
-		filename += ".eprint"
-	case "pdf":
-		filename += ".pdf"
-	default:
-		filename += ".md"
-	}
+	filename := arxivFilename(arxivID, doc.SourceTier)
 
-	// Build a stable metadata blob -- don't pass through raw_archive
-	// bytes (the Python wrapper filtered them out at sources.py:423
-	// for the same reason: bytea in JSON doesn't round-trip).
-	metadata := map[string]any{
-		"arxiv_id":      arxivID,
-		"source_tier":   doc.SourceTier,
-		"source_url":    doc.URL,
-		"paper_title":   doc.Title,
-		"ingested_via":  "platform_sources",
-	}
-	if mt, ok := doc.Metadata["main_tex"]; ok {
-		metadata["main_tex"] = mt
-	}
-	if tf, ok := doc.Metadata["tex_files"]; ok {
-		metadata["tex_files"] = tf
-	}
+	// Stable metadata blob (shared with /prepare). Raw archive bytes are
+	// excluded -- bytea doesn't round-trip through JSON.
+	metadata := arxivMetadata(arxivID, doc)
 
 	var collectionIDs []uuid.UUID
 	if corpusID != "" {

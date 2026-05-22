@@ -13,14 +13,14 @@
 //
 // Pipeline stages:
 //
-//   1. parsing.Parse(content_type, body)   -> text + doc_type + figures
-//   2. chunker.Chunk(text)                 -> []string
-//   3. embedder.Embed(chunks)              -> [][]float32
-//   4. store.InsertDocumentWithChunks      -> row in platform.documents +
-//                                              N rows in platform.chunks
-//   5. store.MarkStageIndexed              -> stage1_at = now()
-//   6. figures.ExtractAndPersist (eprint)  -> N rows in
-//                                              platform.document_figures
+//  1. parsing.Parse(content_type, body)   -> text + doc_type + figures
+//  2. chunker.Chunk(text)                 -> []string
+//  3. embedder.Embed(chunks)              -> [][]float32
+//  4. store.InsertDocumentWithChunks      -> row in platform.documents +
+//     N rows in platform.chunks
+//  5. store.MarkStageIndexed              -> stage1_at = now()
+//  6. figures.ExtractAndPersist (eprint)  -> N rows in
+//     platform.document_figures
 //
 // Steps 5 and 6 are best-effort -- failure logs a warning but does NOT
 // roll back the ingest, since the chunks are already committed. That's a
@@ -38,8 +38,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/chunking"
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/chunking"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/figures"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/parsing"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/store"

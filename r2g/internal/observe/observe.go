@@ -108,7 +108,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 }
 
 // SidecarError increments the per-sidecar failure counter. Called
-// from internal/embeddings, internal/llm, internal/parsing on
+// from embeddings, internal/llm, internal/parsing on
 // non-2xx / transport failure. kind is a short tag ("timeout",
 // "http_5xx", "decode") so dashboards can pivot.
 func (m *Metrics) SidecarError(sidecar, kind string) {
