@@ -58,14 +58,22 @@ RUN dpkg --add-architecture arm64 \
 
 WORKDIR /src
 COPY --from=ztoklib /opt/ztok /opt/ztok
-# r2g/go.mod replaces ztok-go with ../../ztok/bindings/go; from the module
-# root at /src that resolves to /ztok/bindings/go, so stage the submodule
-# there before `go mod download` reads the replace target. (Build context is
-# the umbrella root, so ztok/ and knowledge/r2g/ are umbrella-relative.)
-COPY ztok /ztok
-COPY knowledge/r2g/go.mod knowledge/r2g/go.sum ./
-RUN go mod download
-COPY knowledge/r2g/ .
+# Build context is the umbrella root. r2g/go.mod uses replace directives
+# (../../core, ../../ztok/bindings/go, ../../deepresearch/..., etc.) that
+# resolve against sibling sub-repos, so copy go.work + every member into
+# /src and build in workspace mode — the same pattern as knowledge/reindex.
+# (The old per-module `go mod download` staged only ztok and broke once r2g
+# picked up the core/blobstore dependency, whose ../../core replace target
+# was absent from the build context.) ztok at /src/ztok satisfies the
+# ztok-go replace; /opt/ztok holds the cross-built libztok.a for the cgo link.
+COPY go.work go.work.sum* ./
+COPY core ./core
+COPY ztok ./ztok
+COPY knowledge ./knowledge
+COPY deepresearch ./deepresearch
+COPY delegator ./delegator
+COPY evolve ./evolve
+COPY platform ./platform
 
 # Branch on TARGETARCH so a non-arm64 build still works (the workstation
 # `bin/adam ship workstation r2g` path would land here with amd64). Build
@@ -76,11 +84,11 @@ RUN set -eux; \
         CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++ \
         CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
         CGO_CFLAGS="-I/opt/ztok/include" CGO_LDFLAGS="-L/opt/ztok/lib" \
-            go build -tags nopkgconfig -ldflags="-s -w" -o /out/r2g ./cmd/r2g; \
+            go build -tags nopkgconfig -ldflags="-s -w" -o /out/r2g ./knowledge/r2g/cmd/r2g; \
     else \
         CGO_ENABLED=1 GOOS=linux GOARCH="$TARGETARCH" \
         CGO_CFLAGS="-I/opt/ztok/include" CGO_LDFLAGS="-L/opt/ztok/lib" \
-            go build -tags nopkgconfig -ldflags="-s -w" -o /out/r2g ./cmd/r2g; \
+            go build -tags nopkgconfig -ldflags="-s -w" -o /out/r2g ./knowledge/r2g/cmd/r2g; \
     fi
 
 FROM debian:trixie-slim
