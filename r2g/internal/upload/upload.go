@@ -1,11 +1,16 @@
 // Package upload owns the "user-dragged-a-file-into-the-library-page"
-// disk persistence step. Front-end calls POST /platform/sources/upload
-// first to stash the bytes durably, then calls POST /platform/sources/ingest
-// with target=file:<path> so a network retry doesn't re-upload.
+// persistence step. Front-end calls POST /platform/sources/upload first to
+// stash the bytes durably, then calls POST /platform/sources/ingest with
+// target=file:<key> (or s3://dr-uploads/<key>) so a network retry doesn't
+// re-upload.
 //
-// Defaults match the legacy Python (sources.py:53-62):
+// As of the core/blobstore migration the bytes land in the shared S3 /
+// Garage blob store (bucket "dr-uploads") rather than a local filesystem
+// directory, so r2g and the platform plugin-host can read the same object
+// without a shared docker volume.
 //
-//   - DefaultDir  = /var/lib/dr-uploads   (Pi: docker volume "dr_uploads")
+//   - bucket      = dr-uploads   (blobstore.ConfigFromEnv("dr-uploads"))
+//   - object key  = uploads/<uuid>[ext]
 //   - DefaultMax  = 256 MiB
 //   - allow-list  = pdf, epub, txt, md, markdown, tex, html, htm
 //
@@ -15,21 +20,23 @@
 package upload
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/sirus20x6/adamaton-core/blobstore"
 )
 
-// DefaultDir is where uploads land when callers don't override. Mounted
-// into both the backend and r2g containers via the "dr_uploads" docker
-// volume.
-const DefaultDir = "/var/lib/dr-uploads"
+// KeyPrefix is the object-key prefix for general source uploads in the
+// dr-uploads bucket. Keys are of the form "uploads/<uuid>[ext]".
+const KeyPrefix = "uploads/"
 
 // DefaultMaxBytes is the per-upload ceiling. 256 MiB matches the Python
 // PLATFORM_UPLOAD_MAX_BYTES default.
@@ -51,39 +58,40 @@ var DefaultAllowedExts = map[string]bool{
 
 // Sentinel errors so HTTP handlers can translate to the right status.
 var (
-	ErrTooLarge        = errors.New("upload: exceeds size limit")
-	ErrUnsupportedExt  = errors.New("upload: unsupported file extension")
-	ErrEmpty           = errors.New("upload: empty file")
+	ErrTooLarge       = errors.New("upload: exceeds size limit")
+	ErrUnsupportedExt = errors.New("upload: unsupported file extension")
+	ErrEmpty          = errors.New("upload: empty file")
 )
 
 // Config bundles the policy knobs. Zero values fall back to package
 // defaults so callers can pass &Config{} and get the legacy behaviour.
 type Config struct {
-	Dir         string
 	MaxBytes    int64
 	AllowedExts map[string]bool
 }
 
-// Result describes the persisted file.
+// Result describes the persisted blob. Key is the object key within the
+// dr-uploads bucket (e.g. "uploads/<uuid>.pdf") -- NOT a filesystem path.
+// Callers hand this key back to clients and pass it to the ingest path
+// (bare, or wrapped as s3://dr-uploads/<key>).
 type Result struct {
-	Path     string
+	Key      string
 	Size     int64
 	Filename string
 }
 
-// Save copies r into a uuid-named file under cfg.Dir, returning the
-// final path and byte count. filename's extension is checked against
-// the allow-list before any bytes are written; ErrUnsupportedExt is
-// returned without creating the file.
+// Save streams r into the dr-uploads bucket under key "uploads/<uuid>[ext]",
+// returning the object key and byte count. filename's extension is checked
+// against the allow-list before any bytes are read; ErrUnsupportedExt is
+// returned without touching the store.
 //
-// Reads happen in 1 MiB chunks; if the running total crosses MaxBytes
-// the partial file is unlinked and ErrTooLarge is returned. This mirrors
-// the Python loop at sources.py:294-309 so reaching the cap costs
-// roughly the same disk activity in both implementations.
-func Save(ctx context.Context, cfg Config, r io.Reader, filename string) (*Result, error) {
-	dir := cfg.Dir
-	if dir == "" {
-		dir = DefaultDir
+// The whole upload is buffered in memory (bounded by MaxBytes) so the size
+// is known before the PUT and the running total can be enforced against the
+// cap exactly as the legacy disk loop did (sources.py:294-309). 256 MiB is
+// the ceiling, matching the per-upload limit.
+func Save(ctx context.Context, cfg Config, store blobstore.Backend, r io.Reader, filename string) (*Result, error) {
+	if store == nil {
+		return nil, errors.New("upload: blob store is not configured")
 	}
 	maxBytes := cfg.MaxBytes
 	if maxBytes <= 0 {
@@ -102,62 +110,30 @@ func Save(ctx context.Context, cfg Config, r io.Reader, filename string) (*Resul
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedExt, ext)
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-
-	destName := uuid.New().String() + ext
-	destPath := filepath.Join(dir, destName)
-
-	fh, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	// Read up to maxBytes+1 so we can detect an over-cap upload without
+	// holding more than one extra byte in memory. Mirrors the legacy
+	// disk loop's "unlink the partial file and reject" behaviour.
+	limited := io.LimitReader(r, maxBytes+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", destPath, err)
+		return nil, fmt.Errorf("read upload: %w", err)
 	}
-	cleanup := func() {
-		_ = fh.Close()
-		_ = os.Remove(destPath)
-	}
-
-	const bufSize = 1 << 20 // 1 MiB
-	buf := make([]byte, bufSize)
-	var total int64
-	for {
-		if err := ctx.Err(); err != nil {
-			cleanup()
-			return nil, err
-		}
-		n, readErr := r.Read(buf)
-		if n > 0 {
-			total += int64(n)
-			if total > maxBytes {
-				cleanup()
-				return nil, fmt.Errorf("%w: %d > %d", ErrTooLarge, total, maxBytes)
-			}
-			if _, werr := fh.Write(buf[:n]); werr != nil {
-				cleanup()
-				return nil, fmt.Errorf("write %s: %w", destPath, werr)
-			}
-		}
-		if errors.Is(readErr, io.EOF) {
-			break
-		}
-		if readErr != nil {
-			cleanup()
-			return nil, fmt.Errorf("read upload: %w", readErr)
-		}
-	}
-
-	if err := fh.Close(); err != nil {
-		_ = os.Remove(destPath)
-		return nil, fmt.Errorf("close %s: %w", destPath, err)
+	total := int64(len(data))
+	if total > maxBytes {
+		return nil, fmt.Errorf("%w: %d > %d", ErrTooLarge, total, maxBytes)
 	}
 	if total == 0 {
-		_ = os.Remove(destPath)
 		return nil, ErrEmpty
 	}
 
+	key := path.Join(KeyPrefix, uuid.New().String()+ext)
+
+	if _, err := store.Put(ctx, key, bytes.NewReader(data), total); err != nil {
+		return nil, fmt.Errorf("put %s: %w", key, err)
+	}
+
 	return &Result{
-		Path:     destPath,
+		Key:      key,
 		Size:     total,
 		Filename: filename,
 	}, nil
