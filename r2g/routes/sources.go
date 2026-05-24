@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
+	"github.com/sirus20x6/adamaton-core/blobstore"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/chunking"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/arxiv"
@@ -38,12 +40,13 @@ func RegisterSources(
 	pool *pgxpool.Pool,
 	embedder *embeddings.Client,
 	chunker *chunking.Chunker,
+	blobs blobstore.Backend,
 	logger *logrus.Logger,
 ) {
 	r.HandleFunc("/platform/sources/kinds", sourcesKindsHandler()).Methods(http.MethodGet)
-	r.HandleFunc("/platform/sources/upload", sourcesUploadHandler(logger)).Methods(http.MethodPost)
+	r.HandleFunc("/platform/sources/upload", sourcesUploadHandler(blobs, logger)).Methods(http.MethodPost)
 	r.HandleFunc("/platform/sources/ingest",
-		sourcesIngestHandler(pool, embedder, chunker, logger)).Methods(http.MethodPost)
+		sourcesIngestHandler(pool, embedder, chunker, blobs, logger)).Methods(http.MethodPost)
 	// Split-ingest endpoints for the reindex Temporal pipeline (see
 	// prepare.go): /prepare fetches+parses without persisting, /figures
 	// runs the cgo figure extractor after the worker has persisted the doc.
@@ -166,10 +169,21 @@ func sourcesGetHandler(pool *pgxpool.Pool, logger *logrus.Logger) http.HandlerFu
 }
 
 // sourcesUploadHandler implements POST /platform/sources/upload --
-// stash multipart bytes to /var/lib/dr-uploads and return the path the
-// caller should pass to POST /ingest with target=file:<path>.
-func sourcesUploadHandler(logger *logrus.Logger) http.HandlerFunc {
+// stash multipart bytes in the dr-uploads blob store (object key
+// "uploads/<uuid>[ext]") and return that key for the caller to pass to
+// POST /ingest with target=file:<key> (or s3://dr-uploads/<key>).
+//
+// The response carries the object key under "key"; "path" is set to the
+// same value as a compat alias for the SPA, whose IngestPanel reads
+// uploadResp.path and builds target=file://<path> (see
+// frontend/src/api/library.ts UploadResponse + IngestPanel.tsx).
+func sourcesUploadHandler(blobs blobstore.Backend, logger *logrus.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
+		if blobs == nil {
+			writeJSON(w, http.StatusServiceUnavailable,
+				errorBody("blob store not configured (set BLOBSTORE_* env)"))
+			return
+		}
 		// 1 MiB header budget; the rest streams via io.Reader.
 		if err := req.ParseMultipartForm(1 << 20); err != nil {
 			writeJSON(w, http.StatusBadRequest,
@@ -184,7 +198,7 @@ func sourcesUploadHandler(logger *logrus.Logger) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		res, err := upload.Save(req.Context(), upload.Config{}, file, hdr.Filename)
+		res, err := upload.Save(req.Context(), upload.Config{}, blobs, file, hdr.Filename)
 		if err != nil {
 			switch {
 			case errors.Is(err, upload.ErrUnsupportedExt):
@@ -202,7 +216,8 @@ func sourcesUploadHandler(logger *logrus.Logger) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":           true,
-			"path":         res.Path,
+			"key":          res.Key,
+			"path":         res.Key, // compat alias for the SPA (target=file://<path>)
 			"size":         res.Size,
 			"filename":     res.Filename,
 			"content_type": hdr.Header.Get("Content-Type"),
@@ -212,14 +227,16 @@ func sourcesUploadHandler(logger *logrus.Logger) http.HandlerFunc {
 
 // sourcesIngestHandler implements POST /platform/sources/ingest. Body:
 // { target: "arxiv:1706.03762", corpus_id?: uuid, document_id?: uuid }.
-// Other target schemes (doi/url/file) currently 501 -- matches the
-// Python behaviour. The arxiv path composes arxiv.Fetch with
-// ingestpipeline.Run -- no internal HTTP self-call; the bytes flow
-// straight through the pipeline.
+// The arxiv path composes arxiv.Fetch with ingestpipeline.Run -- no
+// internal HTTP self-call; the bytes flow straight through the pipeline.
+// The file/s3 schemes Get a previously-uploaded object out of the
+// dr-uploads blob store and run it through the same pipeline. doi/url
+// remain 501 (not yet implemented).
 func sourcesIngestHandler(
 	pool *pgxpool.Pool,
 	embedder *embeddings.Client,
 	chunker *chunking.Chunker,
+	blobs blobstore.Backend,
 	logger *logrus.Logger,
 ) http.HandlerFunc {
 	fetcher := arxiv.NewClient(logger)
@@ -238,7 +255,10 @@ func sourcesIngestHandler(
 		case "arxiv":
 			ingestArxiv(req, w, pool, embedder, chunker, fetcher, logger,
 				value, body.CorpusID, body.DocumentID)
-		case "doi", "url", "file":
+		case "file", "s3":
+			ingestBlob(req, w, pool, embedder, chunker, blobs, logger,
+				body.Target, body.CorpusID, body.DocumentID)
+		case "doi", "url":
 			writeJSON(w, http.StatusNotImplemented, map[string]any{
 				"ok":     false,
 				"error":  "not yet implemented",
@@ -248,6 +268,175 @@ func sourcesIngestHandler(
 			writeJSON(w, http.StatusBadRequest,
 				errorBody(fmt.Sprintf("unknown target scheme: %s", scheme)))
 		}
+	}
+}
+
+// blobKeyFromTarget extracts the dr-uploads object key from an ingest
+// target. It accepts every shape the upload path can hand back:
+//
+//	s3://dr-uploads/uploads/<uuid>.pdf   (canonical URI form)
+//	file://uploads/<uuid>.pdf            (what the SPA builds: file://<path>)
+//	file:uploads/<uuid>.pdf              (bare scheme:value)
+//	uploads/<uuid>.pdf                   (bare key)
+//
+// The leading "s3"/"file" scheme, any "//" authority slashes, and a
+// leading "dr-uploads/" bucket segment are all stripped so the result is
+// the plain object key. Returns an error for an empty or absolute-path key
+// (a "/"-prefixed value is a legacy filesystem path, not a blob key).
+func blobKeyFromTarget(target string) (string, error) {
+	key := strings.TrimSpace(target)
+	if i := strings.Index(key, ":"); i >= 0 {
+		// Strip a leading scheme ("s3:", "file:") if present.
+		switch strings.ToLower(strings.TrimSpace(key[:i])) {
+		case "s3", "file":
+			key = key[i+1:]
+		}
+	}
+	// Strip a "//authority" prefix: for s3:// the authority is the bucket
+	// (dr-uploads); for file:// the SPA emits file://<key> with no real
+	// authority, so the segment after "//" is already the key.
+	key = strings.TrimPrefix(key, "//")
+	key = strings.TrimPrefix(key, "dr-uploads/")
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", errors.New("empty blob key in target")
+	}
+	if strings.HasPrefix(key, "/") {
+		return "", fmt.Errorf("absolute filesystem paths are no longer supported; "+
+			"expected an s3://dr-uploads/<key> reference, got %q", target)
+	}
+	return key, nil
+}
+
+// ingestBlob pulls a previously-uploaded object out of the dr-uploads blob
+// store and funnels it through the same pipeline the arxiv path uses. The
+// target is one of the forms accepted by blobKeyFromTarget; the bytes are
+// Get'd from the store and handed to ingestpipeline.Run as Input.Body.
+func ingestBlob(
+	req *http.Request,
+	w http.ResponseWriter,
+	pool *pgxpool.Pool,
+	embedder *embeddings.Client,
+	chunker *chunking.Chunker,
+	blobs blobstore.Backend,
+	logger *logrus.Logger,
+	target, corpusID, documentID string,
+) {
+	if blobs == nil {
+		writeJSON(w, http.StatusServiceUnavailable,
+			errorBody("blob store not configured (set BLOBSTORE_* env)"))
+		return
+	}
+
+	key, err := blobKeyFromTarget(target)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody(err.Error()))
+		return
+	}
+
+	rc, err := blobs.Get(req.Context(), key)
+	if err != nil {
+		if errors.Is(err, blobstore.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound,
+				errorBody(fmt.Sprintf("no uploaded object at key %q", key)))
+			return
+		}
+		logger.WithError(err).WithField("key", key).Error("blob get failed")
+		writeJSON(w, http.StatusBadGateway, errorBody("blob store read failed: "+err.Error()))
+		return
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		logger.WithError(err).WithField("key", key).Error("blob read failed")
+		writeJSON(w, http.StatusBadGateway, errorBody("blob read failed: "+err.Error()))
+		return
+	}
+	if len(data) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorBody(fmt.Sprintf("object %q is empty", key)))
+		return
+	}
+
+	var docID uuid.UUID
+	if documentID != "" {
+		docID, _ = uuid.Parse(documentID) // already validated in decodeIngestBody
+	} else {
+		docID = uuid.New()
+	}
+
+	var collectionIDs []uuid.UUID
+	if corpusID != "" {
+		if cid, err := uuid.Parse(corpusID); err == nil {
+			collectionIDs = []uuid.UUID{cid}
+		} else {
+			writeJSON(w, http.StatusBadRequest, errorBody("invalid corpus_id: "+err.Error()))
+			return
+		}
+	}
+
+	var ownerID *uuid.UUID
+	if v := os.Getenv("R2G_DEFAULT_OWNER_ID"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			ownerID = &id
+		}
+	}
+
+	// Title is the object key's base name (e.g. "<uuid>.pdf"); the parser
+	// dispatches on ContentType inferred from the extension.
+	title := path.Base(key)
+	contentType := contentTypeForKey(key)
+
+	res, err := ingestpipeline.Run(req.Context(), pool, embedder, chunker, ingestpipeline.Input{
+		DocumentID:  docID,
+		Title:       title,
+		ContentType: contentType,
+		Body:        data,
+		Metadata: map[string]any{
+			"source":      "upload",
+			"blob_key":    key,
+			"blob_bucket": "dr-uploads",
+		},
+		CollectionIDs: collectionIDs,
+		OwnerID:       ownerID,
+	}, logger)
+	if err != nil {
+		writePipelineError(w, logger, docID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"key":          key,
+		"document_id":  docID.String(),
+		"filename":     title,
+		"size":         len(data),
+		"chunks":       res.Chunks,
+		"total_tokens": res.TotalTokens,
+		"figure_count": res.Figures,
+		"r2r_status":   http.StatusOK,
+	})
+}
+
+// contentTypeForKey maps an object key's extension to the content-type the
+// ingest pipeline's parser dispatches on. Unknown extensions fall through
+// to "" so parsing.Parse can sniff the bytes.
+func contentTypeForKey(key string) string {
+	switch strings.ToLower(path.Ext(key)) {
+	case ".pdf":
+		return "application/pdf"
+	case ".epub":
+		return "application/epub+zip"
+	case ".md", ".markdown":
+		return "text/markdown"
+	case ".tex":
+		return "text/x-tex"
+	case ".html", ".htm":
+		return "text/html"
+	case ".txt":
+		return "text/plain"
+	default:
+		return ""
 	}
 }
 

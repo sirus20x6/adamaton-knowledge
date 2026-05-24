@@ -19,6 +19,10 @@
 //	OPENAI_API_KEY      — auth token for the LLM endpoint (often a placeholder)
 //	R2G_LLM_MODEL       — model name to send (default "qwen3.6-27b-nvfp8")
 //	R2G_PPROF_PORT      — pprof + /metrics side listener (default 7374, "" to disable)
+//	BLOBSTORE_ENDPOINT  — S3 / Garage endpoint for document uploads (bucket
+//	                      "dr-uploads"); with BLOBSTORE_ACCESS_KEY /
+//	                      BLOBSTORE_SECRET_KEY / BLOBSTORE_REGION. Absent ->
+//	                      /platform/sources/upload + file:/s3: ingest return 503.
 //
 // The binary is single-process, single-purpose, and stateless except
 // for postgres. Restart-safe; graceful shutdown drains in-flight
@@ -41,6 +45,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 
+	"github.com/sirus20x6/adamaton-core/blobstore"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/chunking"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/llm"
@@ -111,6 +116,31 @@ func run() error {
 		return fmt.Errorf("init chunker: %w", err)
 	}
 
+	// Document-blob store for /platform/sources/upload + the file:/s3:
+	// ingest schemes. Bucket "dr-uploads" is shared with the platform
+	// plugin-host. Credentials/endpoint come from the canonical BLOBSTORE_*
+	// env (see core/blobstore.ConfigFromEnv). Absent BLOBSTORE_ENDPOINT ->
+	// nil store; the handlers return 503 rather than failing startup, so
+	// search/ingest of non-upload sources keeps working.
+	var blobs blobstore.Backend
+	blobCfg := blobstore.ConfigFromEnv("dr-uploads")
+	if blobCfg.Endpoint != "" {
+		s3, err := blobstore.NewS3(ctx, blobCfg)
+		if err != nil {
+			return fmt.Errorf("init blob store: %w", err)
+		}
+		if err := s3.EnsureBucket(ctx); err != nil {
+			return fmt.Errorf("ensure blob bucket %q: %w", blobCfg.Bucket, err)
+		}
+		blobs = s3
+		logger.WithFields(logrus.Fields{
+			"endpoint": blobCfg.Endpoint,
+			"bucket":   blobCfg.Bucket,
+		}).Info("blob store ready (dr-uploads)")
+	} else {
+		logger.Warn("BLOBSTORE_ENDPOINT not set; /platform/sources/upload + file:/s3: ingest will return 503")
+	}
+
 	llmURL := os.Getenv("OPENAI_API_BASE")
 	llmKey := os.Getenv("OPENAI_API_KEY")
 	llmModel := envOr("R2G_LLM_MODEL", "qwen3.6-27b-nvfp8")
@@ -145,7 +175,7 @@ func run() error {
 	if embedder != nil {
 		routes.RegisterSearch(r, pool, embedder, rerankerClient, metrics, logger)
 		routes.RegisterIngest(r, pool, embedder, chunker, logger)
-		routes.RegisterSources(r, pool, embedder, chunker, logger)
+		routes.RegisterSources(r, pool, embedder, chunker, blobs, logger)
 	}
 	if llmClient != nil {
 		routes.RegisterExtract(r, pool, llmClient, chunker, logger)
