@@ -10,13 +10,18 @@ import (
 )
 
 // FigureRow is one materialised figure row ready for InsertFigures. It lives
-// in store (not internal/figures) on purpose: importing store must NOT drag
-// in the go-fitz/MuPDF thumbnail code, because go-fitz pulls purego, which
-// emits //go:cgo_import_dynamic directives that force a dynamically-linked
-// (glibc) binary even under CGO_ENABLED=0. The reindex ChunkEmbedPersist
-// activity imports store and runs on the static musl/alpine worker, so the
-// store package has to stay cgo/purego-free. internal/figures builds these
-// rows and passes them to InsertFigures.
+// in store (not internal/figures) on purpose: importing store does NOT drag
+// in the go-fitz/MuPDF thumbnail code. internal/figures builds these rows and
+// passes them to InsertFigures.
+//
+// History: this split was once load-bearing for the linker — go-fitz pulls
+// purego, whose //go:cgo_import_dynamic directives forced a dynamically-linked
+// binary even under CGO_ENABLED=0, which broke the old static musl/alpine
+// reindex worker. As of the ztok tokenizer swap the worker is CGO_ENABLED=1
+// on debian/glibc (r2g/chunking links libztok), so that hard constraint is
+// gone. The separation is kept anyway: store is imported widely (reindex
+// ChunkEmbedPersist, route handlers) and there's no reason to pull MuPDF into
+// every consumer.
 type FigureRow struct {
 	DocumentID   uuid.UUID
 	Label        string

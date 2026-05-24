@@ -13,6 +13,7 @@ require (
 	github.com/pkoukk/tiktoken-go-loader v0.0.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sirupsen/logrus v1.9.4
+	github.com/sirus20x6/ztok-go v0.0.0
 	golang.org/x/image v0.40.0
 )
 
@@ -46,6 +47,7 @@ require (
 
 replace (
 	github.com/sirus20x6/adamaton-core => ../../core
+	github.com/sirus20x6/ztok-go => ../../ztok/bindings/go
 	github.com/sirus20x6/adamaton-deepresearch/nano-research => ../../deepresearch/nano-research
 	github.com/sirus20x6/adamaton-delegator/delegator => ../../delegator/delegator
 	github.com/sirus20x6/adamaton-delegator/mcp => ../../delegator/mcp

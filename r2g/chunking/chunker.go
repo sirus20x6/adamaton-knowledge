@@ -1,22 +1,34 @@
 // Package chunking splits a document body into overlapping token-bounded
-// chunks ready for embedding. r2g uses tiktoken-go with the cl100k_base
-// BPE vocab — same tokenizer family R2R uses, so chunk-token-counts
-// stay comparable across the strangler-fig boundary.
+// chunks ready for embedding. r2g tokenizes with ztok (a fast Zig
+// tokenizer, github.com/sirus20x6/ztok) loaded with the cl100k_base BPE
+// vocab — the same tokenizer family R2R uses, so chunk-token-counts stay
+// comparable across the strangler-fig boundary. ztok's cl100k output is
+// byte-identical to tiktoken's, so swapping it in does not move chunk
+// boundaries (no reindex required); it's just faster.
 //
-// The cl100k vocab is loaded from the offline asset bundled inside
-// tiktoken-go-loader, so the binary doesn't need a network round-trip
-// or a writable TIKTOKEN_CACHE_DIR. RSS cost is roughly 60 MB after
-// the first GetEncoding call (the BPE map is the big tenant).
+// The cl100k vocab is embedded into the binary via go:embed, so there's
+// no network round-trip or writable cache dir at runtime. ztok loaders
+// take a file path, so New() writes the embedded bytes to a temp file,
+// loads it (the vocab is fully materialized into ztok's in-memory SoA
+// table at load), then removes the temp file.
 package chunking
 
 import (
+	_ "embed"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
-	"github.com/pkoukk/tiktoken-go"
-	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
+	ztok "github.com/sirus20x6/ztok-go"
 )
+
+// cl100kVocab is the cl100k_base BPE vocab in tiktoken's base64
+// one-token-per-line format, vendored from the ztok repo
+// (demo/vocabs/cl100k_base.tiktoken). ~1.6 MB; loaded once per process.
+//
+//go:embed assets/cl100k_base.tiktoken
+var cl100kVocab []byte
 
 // Defaults match the rough shape of R2R's effective chunk distribution
 // on the existing AI Papers corpus (median ~800 tokens, p95 ~1200). The
@@ -27,54 +39,66 @@ const (
 	DefaultChunkOverlap = 256
 )
 
-// Chunker is a thread-safe wrapper around a single tiktoken encoding.
-// One instance per process; lookups are O(1) so there's no benefit to
-// per-request reuse beyond eliminating the encoding-init cost.
+// Chunker wraps a single ztok pipeline. One instance per process: a ztok
+// Pipeline is safe to share across goroutines for Encode/Decode (the
+// underlying Zig pipeline is immutable after construction and allocates
+// fresh per-call scratch), so the process-wide singleton can be hit
+// concurrently by worker activities without a mutex.
 type Chunker struct {
-	enc *tiktoken.Tiktoken
+	pipe *ztok.Pipeline
 }
 
 var (
-	loaderOnce    sync.Once
-	loaderErr     error
 	defaultChunk  *Chunker
+	defaultErr    error
 	defaultOnce   sync.Once
 	defaultMakeFn = func() (*Chunker, error) { return New("cl100k_base") }
 )
 
 // Default returns a process-wide singleton Chunker using cl100k_base.
-// The first call pays the BPE-init cost (~60 MB RSS, ~80 ms wallclock);
-// subsequent calls are free.
+// The first call pays the vocab-load cost; subsequent calls are free.
 func Default() (*Chunker, error) {
-	var err error
 	defaultOnce.Do(func() {
-		defaultChunk, err = defaultMakeFn()
+		defaultChunk, defaultErr = defaultMakeFn()
 	})
-	if err != nil {
-		return nil, err
+	if defaultErr != nil {
+		return nil, defaultErr
 	}
 	return defaultChunk, nil
 }
 
-// New builds a Chunker for the named tiktoken encoding (cl100k_base,
-// o200k_base, p50k_base, r50k_base). The offline loader is installed
-// once at process start; subsequent New() calls are cheap.
+// New builds a Chunker for the named encoding. Only cl100k_base is
+// supported — it's the vocab embedded in the binary; the parameter is
+// kept for API compatibility with the previous tiktoken-go-backed
+// implementation and is validated against the embedded vocab.
 func New(encodingName string) (*Chunker, error) {
-	loaderOnce.Do(func() {
-		// SetBpeLoader is global; calling it more than once is harmless
-		// but races on the package-level variable, so we gate it behind
-		// sync.Once. tiktoken-go-loader bundles cl100k/o200k/p50k/r50k
-		// .tiktoken files via go:embed so no network is needed.
-		tiktoken.SetBpeLoader(tiktoken_loader.NewOfflineLoader())
-	})
-	if loaderErr != nil {
-		return nil, loaderErr
+	if encodingName != "" && encodingName != "cl100k_base" {
+		return nil, fmt.Errorf("chunking: unsupported encoding %q (only cl100k_base is embedded)", encodingName)
 	}
-	enc, err := tiktoken.GetEncoding(encodingName)
+
+	// ztok's BPE loader takes a file path. Materialize the embedded vocab
+	// to a temp file, load it, then remove it — the loader parses the
+	// whole file into an in-memory SoA vocab table, so the file is not
+	// needed after OpenTiktoken returns.
+	f, err := os.CreateTemp("", "r2g-cl100k-*.tiktoken")
 	if err != nil {
-		return nil, fmt.Errorf("get tiktoken encoding %q: %w", encodingName, err)
+		return nil, fmt.Errorf("chunking: create temp vocab: %w", err)
 	}
-	return &Chunker{enc: enc}, nil
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
+	if _, err := f.Write(cl100kVocab); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("chunking: write temp vocab: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("chunking: close temp vocab: %w", err)
+	}
+
+	pipe, err := ztok.OpenTiktoken(tmpPath, &ztok.Config{CL100K: true})
+	if err != nil {
+		return nil, fmt.Errorf("chunking: load cl100k vocab: %w", err)
+	}
+	return &Chunker{pipe: pipe}, nil
 }
 
 // Chunk splits text into overlapping token windows.
@@ -107,7 +131,10 @@ func (c *Chunker) Chunk(text string, chunkSize, chunkOverlap int) ([]string, err
 		return nil, nil
 	}
 
-	tokens := c.enc.Encode(text, nil, nil)
+	tokens, err := c.pipe.Encode(text)
+	if err != nil {
+		return nil, fmt.Errorf("chunking: encode: %w", err)
+	}
 	if len(tokens) == 0 {
 		return nil, nil
 	}
@@ -123,7 +150,11 @@ func (c *Chunker) Chunk(text string, chunkSize, chunkOverlap int) ([]string, err
 		// Decode handles surrogate pairs and partial multibyte codepoints
 		// at the window edges; trim leading/trailing whitespace so chunk
 		// text is presentation-ready.
-		piece := strings.TrimSpace(c.enc.Decode(window))
+		decoded, err := c.pipe.Decode(window)
+		if err != nil {
+			return nil, fmt.Errorf("chunking: decode window [%d:%d]: %w", start, end, err)
+		}
+		piece := strings.TrimSpace(decoded)
 		if piece != "" {
 			out = append(out, piece)
 		}
@@ -138,7 +169,12 @@ func (c *Chunker) Chunk(text string, chunkSize, chunkOverlap int) ([]string, err
 
 // CountTokens returns the token count for a string. Useful for sanity-
 // checking input sizes before doing the chunk pass, and for the
-// document's total_tokens metadata field.
+// document's total_tokens metadata field. ztok has no count-only call,
+// so this encodes and returns the length; on encode error it returns 0.
 func (c *Chunker) CountTokens(text string) int {
-	return len(c.enc.Encode(text, nil, nil))
+	ids, err := c.pipe.Encode(text)
+	if err != nil {
+		return 0
+	}
+	return len(ids)
 }

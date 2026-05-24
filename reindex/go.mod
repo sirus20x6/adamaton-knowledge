@@ -32,6 +32,7 @@ require (
 	github.com/pkoukk/tiktoken-go-loader v0.0.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
+	github.com/sirus20x6/ztok-go v0.0.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	golang.org/x/image v0.40.0 // indirect
@@ -49,6 +50,7 @@ require (
 
 replace (
 	github.com/sirus20x6/adamaton-core => ../../core
+	github.com/sirus20x6/ztok-go => ../../ztok/bindings/go
 	github.com/sirus20x6/adamaton-deepresearch/nano-research => ../../deepresearch/nano-research
 	github.com/sirus20x6/adamaton-delegator/delegator => ../../delegator/delegator
 	github.com/sirus20x6/adamaton-delegator/mcp => ../../delegator/mcp
