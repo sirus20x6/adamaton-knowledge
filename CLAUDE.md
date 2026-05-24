@@ -29,6 +29,25 @@ cd tools/arxiv-skip  && zig build && zig build test
 
 From the umbrella, `go build ./...` covers all four Go modules via `go.work`.
 
+### libztok (cgo) is required to build r2g + reindex
+
+`r2g/chunking` tokenizes via the `ztok` cgo binding (the umbrella's `ztok`
+submodule, `github.com/sirus20x6/ztok-go`), so building r2g or reindex now
+needs `libztok` + `ztok.h` on the cgo paths. Build it once from the submodule
+and point pkg-config at it:
+
+```bash
+# from the umbrella root
+cd ztok && zig build -Doptimize=ReleaseFast -p "$PWD/zig-out" && cd -
+export PKG_CONFIG_PATH="$ADAM_ROOT/ztok/zig-out/lib/pkgconfig"
+export LD_LIBRARY_PATH="$ADAM_ROOT/ztok/zig-out/lib"   # for the .so at run/test time
+```
+
+The Docker images don't need this — their `ztoklib` build stage compiles
+`libztok.a` with Zig and static-links it (`-tags nopkgconfig` + `CGO_*FLAGS`).
+ztok's cl100k output is byte-identical to tiktoken's, so the swap moved no
+chunk boundaries and required no reindex (see `r2g/chunking/chunker_parity_test.go`).
+
 ## Gotchas
 
 - **Each subdir is its own Go module.** `cd skills && go test ./...` and `cd r2g && go test ./...` are separate test runs. CI per-module pins use the tagged version of `adamaton-core`; local dev resolves via the umbrella `go.work`.
