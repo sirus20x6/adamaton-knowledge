@@ -48,6 +48,30 @@ The Docker images don't need this — their `ztoklib` build stage compiles
 ztok's cl100k output is byte-identical to tiktoken's, so the swap moved no
 chunk boundaries and required no reindex (see `r2g/chunking/chunker_parity_test.go`).
 
+**Both build modes are exercised by `r2g/internal/ingestpipeline/pipeline_test.go`**
+(the parse→chunk→embed→persist correctness path). It builds a real
+ztok-backed `chunking.Chunker`, so it fails loudly if the cgo link is
+broken under either mode:
+
+```bash
+# local pkg-config / shared .so (the dev path above)
+GOWORK=off CGO_ENABLED=1 GOFLAGS=-mod=mod \
+  PKG_CONFIG_PATH="$ADAM_ROOT/ztok/zig-out/lib/pkgconfig" \
+  LD_LIBRARY_PATH="$ADAM_ROOT/ztok/zig-out/lib" \
+  go test ./internal/ingestpipeline/...
+
+# Docker static-link path (libztok.a, no .so) — mirrors the image
+zig build -Doptimize=ReleaseFast -p /tmp/ztok-static   # then rm libztok.so*
+GOWORK=off CGO_ENABLED=1 GOFLAGS=-mod=mod \
+  CGO_CFLAGS="-I/tmp/ztok-static/include" CGO_LDFLAGS="-L/tmp/ztok-static/lib" \
+  go build -tags nopkgconfig ./cmd/r2g
+```
+
+The DB-backed cases (happy path, embedder-error, already-ingested) stand
+up an ephemeral paradedb via `core/pgutil.NewTestDB` and a fake
+OpenAI-shaped embedding sidecar; they `t.Skip` when Docker is absent, so
+the parse/chunk/validation branches still run on a daemon-less CI box.
+
 ## Gotchas
 
 - **Each subdir is its own Go module.** `cd skills && go test ./...` and `cd r2g && go test ./...` are separate test runs. CI per-module pins use the tagged version of `adamaton-core`; local dev resolves via the umbrella `go.work`.
