@@ -124,11 +124,12 @@ func (a *QueueActivities) QueryWorkSet(ctx context.Context, limit int) ([]workfl
 // RewireCorpusDocument swaps the platform-side document pointer from
 // the old (non-latex) R2R doc to the freshly-ingested latex doc.
 // Mirrors line 138 of the bash script. The DELETE of stale
-// document_figures rows from the bash version (line 139) is intentionally
-// dropped here — Phase 2D ports the swap behaviour only, and the bash
-// version already swallowed that DELETE's errors with 2>&1 >/dev/null.
-// If a follow-up phase wants to mirror the figure cleanup it should add
-// it as a distinct activity so the failure mode is visible.
+// document_figures rows from the bash version (line 139) is NOT folded
+// into this UPDATE — it lives in its own DeleteStaleFigures activity
+// (below) so the figure cleanup has a visible, independently-retried
+// failure mode instead of being swallowed (the bash version masked it
+// with 2>&1 >/dev/null). The paper workflow runs DeleteStaleFigures
+// right after this rewire succeeds; see reindex/workflows/paper.go.
 func (a *QueueActivities) RewireCorpusDocument(ctx context.Context, in RewireInput) error {
 	log := a.logger()
 	if in.OldDocID == "" || in.NewDocID == "" {
@@ -150,6 +151,49 @@ func (a *QueueActivities) RewireCorpusDocument(ctx context.Context, in RewireInp
 		"old": in.OldDocID,
 		"new": in.NewDocID,
 	}).Debug("RewireCorpusDocument: swapped pointer")
+	return nil
+}
+
+// DeleteStaleFigures removes the orphaned platform.document_figures rows
+// that belonged to the OLD (pre-reindex) document. It ports line 139 of
+// the bash script (DELETE FROM platform.document_figures WHERE
+// document_id='$old_id') as a standalone activity.
+//
+// Why a dedicated activity rather than relying on the step-6 R2R delete?
+// The corpus rewire flow's final step issues DeleteR2RDocument(old),
+// which hits r2g's DELETE /v3/documents/{id} and DOES cascade the
+// figure rows away (r2g/store/search.go DeleteDocument deletes from
+// platform.document_figures inside its transaction). But that delete is
+// best-effort: paper.go logs a Warn and still returns the paper as Done
+// if every retry fails. When that happens the old doc *and* its figure
+// rows are orphaned with nothing to ever reclaim them — exactly the
+// "deferred stale document_figures cleanup" the queue.go TODO flagged.
+//
+// Running this explicit DELETE right after the rewire succeeds (and
+// before the R2R old-doc delete) guarantees the figure rows are gone
+// even if the downstream cascade never runs. It is idempotent: a second
+// run, or a run after the cascade already cleared the rows, simply
+// affects zero rows. document_figures has no FK to documents (see the
+// "manual" note in r2g/store/search.go), so deleting figures first
+// never violates a constraint regardless of delete ordering.
+//
+// Performance: a document_figures(document_id) index keeps this a single
+// point lookup — see reindex/sql/002_document_figures_doc_id_index.sql.
+func (a *QueueActivities) DeleteStaleFigures(ctx context.Context, oldDocID string) error {
+	log := a.logger()
+	if oldDocID == "" {
+		return temporal.NewNonRetryableApplicationError(
+			"delete-stale-figures: old_doc_id required", "BadInput", nil)
+	}
+	const q = `DELETE FROM platform.document_figures WHERE document_id = $1`
+	tag, err := a.Pool.Exec(ctx, q, oldDocID)
+	if err != nil {
+		return fmt.Errorf("delete stale document_figures (old=%s): %w", oldDocID, err)
+	}
+	log.WithFields(logrus.Fields{
+		"old":     oldDocID,
+		"deleted": tag.RowsAffected(),
+	}).Debug("DeleteStaleFigures: cleared old document_figures")
 	return nil
 }
 

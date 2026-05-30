@@ -269,6 +269,26 @@ func ReindexArxivPaperWorkflow(ctx workflow.Context, in ReindexArxivPaperInput) 
 		return res, err
 	}
 
+	// Step 5b: drop the old document's stale figure rows. The corpus
+	// pointer now references the new doc, so the old doc's
+	// platform.document_figures rows are orphaned. The step-6
+	// DeleteR2RDocument(old) below would cascade them away on success,
+	// but that delete is best-effort (logs a Warn and proceeds on
+	// failure). Running this explicit, independently-retried cleanup
+	// here guarantees the figure rows are reclaimed even when the R2R
+	// delete never lands — closing the orphan-accumulation gap the old
+	// bash script papered over with `2>&1 >/dev/null`. Idempotent and
+	// FK-free, so re-runs (or running after the cascade already cleared
+	// the rows) are harmless. Best-effort: a failure here doesn't fail
+	// the paper since the swap already landed and search works.
+	figDelCtx := workflow.WithActivityOptions(ctx, deleteFiguresActivityOptions())
+	if err := workflow.ExecuteActivity(figDelCtx, "DeleteStaleFigures", in.OldDocID).Get(figDelCtx, nil); err != nil {
+		logger.Warn("DeleteStaleFigures(old) failed",
+			"old_doc", in.OldDocID,
+			"error", err,
+		)
+	}
+
 	// Step 6: delete the old R2R doc. Best-effort — the bash version
 	// used `curl ... || true` for this step (line 142). We still
 	// return the error if every retry attempt fails, so a systemic
@@ -386,6 +406,22 @@ func deleteActivityOptions() workflow.ActivityOptions {
 // against a small table — 30s is more than enough. MaxAttempts=3 to
 // ride out a brief postgres restart.
 func rewireActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    30 * time.Second,
+			MaximumAttempts:    3,
+		},
+	}
+}
+
+// deleteFiguresActivityOptions tunes DeleteStaleFigures. Single indexed
+// DELETE against platform.document_figures — 30s is ample. MaxAttempts=3
+// mirrors the rewire profile (same small-table, postgres-restart concern).
+// The activity is idempotent so retries are harmless.
+func deleteFiguresActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
