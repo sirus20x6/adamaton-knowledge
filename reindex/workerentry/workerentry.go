@@ -67,6 +67,8 @@ func RegisterIngest(w worker.Worker, d Deps) {
 		activity.RegisterOptions{Name: "QueryWorkSet"})
 	w.RegisterActivityWithOptions(queueActs.RewireCorpusDocument,
 		activity.RegisterOptions{Name: "RewireCorpusDocument"})
+	w.RegisterActivityWithOptions(queueActs.DeleteStaleFigures,
+		activity.RegisterOptions{Name: "DeleteStaleFigures"})
 	w.RegisterActivityWithOptions(ingestActs.PreflightArxiv,
 		activity.RegisterOptions{Name: "PreflightArxiv"})
 	w.RegisterActivityWithOptions(ingestActs.IngestArxivPaper,
