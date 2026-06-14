@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sirupsen/logrus"
 
-	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/embeddings"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/embeddings"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
