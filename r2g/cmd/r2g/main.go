@@ -32,6 +32,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof" // GET /debug/pprof/* on the side port
@@ -63,12 +64,23 @@ func main() {
 }
 
 func run() error {
+	migrateOnly := flag.Bool("migrate", false, "run pending migrations against R2G_DATABASE_URL and exit")
+	flag.Parse()
+
 	logger := newLogger()
 
 	port := envOr("R2G_PORT", "7373")
 	dsn := os.Getenv("R2G_DATABASE_URL")
 	if dsn == "" {
 		return errors.New("R2G_DATABASE_URL is required")
+	}
+
+	if *migrateOnly {
+		if err := store.Migrate(dsn, logger); err != nil {
+			return fmt.Errorf("migrate: %w", err)
+		}
+		logger.Info("migrations applied; exiting (--migrate)")
+		return nil
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -172,6 +184,9 @@ func run() error {
 	routes.RegisterFigures(r, pool, logger)
 	routes.RegisterCorpora(r, pool, logger)
 	routes.RegisterGraph(r, pool, logger)
+	// Episodes accept writes with or without an embedder (NULL vector
+	// when absent; the consolidator embeds later), so register always.
+	routes.RegisterEpisodes(r, pool, embedder, logger)
 	if embedder != nil {
 		routes.RegisterSearch(r, pool, embedder, rerankerClient, metrics, logger)
 		routes.RegisterIngest(r, pool, embedder, chunker, logger)
