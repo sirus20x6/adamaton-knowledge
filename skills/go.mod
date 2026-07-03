@@ -10,7 +10,6 @@ require (
 	go.temporal.io/sdk v1.43.0
 )
 
-
 require (
 	go.temporal.io/api v1.62.11
 	gopkg.in/yaml.v3 v3.0.1
@@ -32,9 +31,9 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516 // indirect
@@ -45,17 +44,17 @@ require (
 
 replace (
 	github.com/sirus20x6/adamaton-core => ../../core
-	github.com/sirus20x6/adamaton-knowledge/skills => ../../knowledge/skills
-	github.com/sirus20x6/adamaton-knowledge/skills-rae => ../../knowledge/skills-rae
-	github.com/sirus20x6/adamaton-knowledge/reindex => ../../knowledge/reindex
-	github.com/sirus20x6/adamaton-knowledge/r2g => ../../knowledge/r2g
 	github.com/sirus20x6/adamaton-deepresearch/nano-research => ../../deepresearch/nano-research
 	github.com/sirus20x6/adamaton-delegator/delegator => ../../delegator/delegator
 	github.com/sirus20x6/adamaton-delegator/mcp => ../../delegator/mcp
 	github.com/sirus20x6/adamaton-evolve/evolve => ../../evolve/evolve
 	github.com/sirus20x6/adamaton-evolve/workflow-builder => ../../evolve/workflow-builder
+	github.com/sirus20x6/adamaton-knowledge/r2g => ../../knowledge/r2g
+	github.com/sirus20x6/adamaton-knowledge/reindex => ../../knowledge/reindex
+	github.com/sirus20x6/adamaton-knowledge/skills => ../../knowledge/skills
+	github.com/sirus20x6/adamaton-knowledge/skills-rae => ../../knowledge/skills-rae
 	github.com/sirus20x6/adamaton-platform/dashboard => ../../platform/dashboard
-	github.com/sirus20x6/adamaton-platform/plugin-host => ../../platform/plugin-host
 	github.com/sirus20x6/adamaton-platform/dispatch => ../../platform/dispatch
+	github.com/sirus20x6/adamaton-platform/plugin-host => ../../platform/plugin-host
 	github.com/sirus20x6/adamaton-platform/temporal => ../../platform/temporal
 )
