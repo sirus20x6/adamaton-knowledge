@@ -15,7 +15,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/sirus20x6/adamaton-core v0.0.0
 	github.com/sirus20x6/ztok-go v0.0.0
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.41.0
 )
 
 require (
