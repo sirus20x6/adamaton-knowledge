@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-knowledge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: knowledge
+
+      # The go.mod replace directives resolve relative paths like ../../core
+      # from knowledge/<module>/, so siblings must sit next to the knowledge/
+      # checkout. GITHUB_TOKEN is repo-scoped and cannot read the other
+      # private repos, so clone siblings with the runner host's gh auth.
+      - name: checkout sibling repos required by go.mod replaces
+        run: |
+          set -euo pipefail
+          for r in core deepresearch delegator evolve platform; do
+            rm -rf "$r"
+            gh repo clone "sirus20x6/adamaton-$r" "$r" -- --depth 1
+          done
+
+      # reindex and r2g depend on github.com/sirus20x6/ztok-go
+      # (=> ../../ztok/bindings/go), a cgo binding that links libztok.
+      # The runner is the dev workstation, which keeps a prebuilt ztok at
+      # /thearray/git/ztok (prefix/ contains lib/pkgconfig/ztok.pc).
+      - name: link prebuilt ztok
+        run: |
+          set -euo pipefail
+          rm -rf ztok
+          if [ ! -f /thearray/git/ztok/prefix/lib/pkgconfig/ztok.pc ]; then
+            echo "prebuilt ztok prefix missing on runner host" >&2
+            exit 1
+          fi
+          ln -s /thearray/git/ztok ztok
+
+      - name: vet, build, and test all modules
+        env:
+          GOGENTS_SKIP_DOCKER_TESTS: "1"
+          GOFLAGS: -mod=mod
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/ztok/prefix/lib/pkgconfig"
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/ztok/prefix/lib"
+          cd knowledge
+          for m in $(find . -name go.mod -not -path '*/vendor/*' | sort); do
+            d=$(dirname "$m")
+            echo "== $d"
+            (cd "$d" && GOWORK=off go vet ./... && GOWORK=off go build ./... && GOWORK=off go test ./...) || exit 1
+          done
