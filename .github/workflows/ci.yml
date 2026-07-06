@@ -20,13 +20,14 @@ jobs:
       # The go.mod replace directives resolve relative paths like ../../core
       # from knowledge/<module>/, so siblings must sit next to the knowledge/
       # checkout. GITHUB_TOKEN is repo-scoped and cannot read the other
-      # private repos, so clone siblings with the runner host's gh auth.
+      # private repos, so clone siblings over SSH with the runner host's key
+      # (gh refuses keyring auth when it detects a GitHub Actions env).
       - name: checkout sibling repos required by go.mod replaces
         run: |
           set -euo pipefail
           for r in core deepresearch delegator evolve platform; do
             rm -rf "$r"
-            gh repo clone "sirus20x6/adamaton-$r" "$r" -- --depth 1
+            git clone --depth 1 "git@github.com:sirus20x6/adamaton-$r.git" "$r"
           done
 
       # reindex and r2g depend on github.com/sirus20x6/ztok-go
