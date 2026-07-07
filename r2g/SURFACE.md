@@ -40,8 +40,8 @@ platform wrapper to Go; until then it stays Python.
 | GET    | `/v3/documents`               | SPA `src/api/library.ts:284` | Yes | List with pagination, filter by collection_id and ingestion_status. |
 | GET    | `/v3/chunks`                  | SPA `src/features/library/DocumentReader.tsx:95` | Yes | Filter by document_id, paginated. |
 
-**Deferred R2R endpoint:**
-- GET `/v3/graphs/{corpus}/relationships` — graph visualization (best-effort; failures don't block). Used only by the dashboard skills graph view.
+**Formerly deferred, now implemented in r2g:**
+- GET `/v3/graphs/{corpus}/relationships` — graph visualization (best-effort; failures don't block). Used only by the dashboard skills graph view. Implemented natively in `routes/graph.go` over `documents_relationships` (corpus-scoped via `documents.collection_ids` OR `platform.corpus_documents`); no longer an R2R passthrough.
 
 ## Platform `/platform/*` endpoints — KEEP (stay in Python for now)
 

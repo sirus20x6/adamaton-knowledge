@@ -28,6 +28,7 @@ import (
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/arxiv"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/ingestpipeline"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/upload"
+	"github.com/sirus20x6/adamaton-knowledge/r2g/internal/webfetch"
 	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
@@ -230,8 +231,11 @@ func sourcesUploadHandler(blobs blobstore.Backend, logger *logrus.Logger) http.H
 // The arxiv path composes arxiv.Fetch with ingestpipeline.Run -- no
 // internal HTTP self-call; the bytes flow straight through the pipeline.
 // The file/s3 schemes Get a previously-uploaded object out of the
-// dr-uploads blob store and run it through the same pipeline. doi/url
-// remain 501 (not yet implemented).
+// dr-uploads blob store and run it through the same pipeline. The doi
+// scheme resolves through doi.org content negotiation (PDF preferred,
+// falling back to citation_pdf_url and then readability extraction of
+// the landing page); the url scheme fetches directly with the same
+// HTML-to-markdown extraction. Both feed the shared pipeline.
 func sourcesIngestHandler(
 	pool *pgxpool.Pool,
 	embedder *embeddings.Client,
@@ -240,6 +244,7 @@ func sourcesIngestHandler(
 	logger *logrus.Logger,
 ) http.HandlerFunc {
 	fetcher := arxiv.NewClient(logger)
+	web := webfetch.NewClient(logger)
 	return func(w http.ResponseWriter, req *http.Request) {
 		body, err := decodeIngestBody(io.LimitReader(req.Body, 1<<16))
 		if err != nil {
@@ -259,11 +264,8 @@ func sourcesIngestHandler(
 			ingestBlob(req, w, pool, embedder, chunker, blobs, logger,
 				body.Target, body.CorpusID, body.DocumentID)
 		case "doi", "url":
-			writeJSON(w, http.StatusNotImplemented, map[string]any{
-				"ok":     false,
-				"error":  "not yet implemented",
-				"scheme": scheme,
-			})
+			ingestWeb(req, w, pool, embedder, chunker, web, logger,
+				scheme, value, body.CorpusID, body.DocumentID)
 		default:
 			writeJSON(w, http.StatusBadRequest,
 				errorBody(fmt.Sprintf("unknown target scheme: %s", scheme)))
@@ -411,6 +413,102 @@ func ingestBlob(
 		"document_id":  docID.String(),
 		"filename":     title,
 		"size":         len(data),
+		"chunks":       res.Chunks,
+		"total_tokens": res.TotalTokens,
+		"figure_count": res.Figures,
+		"r2r_status":   http.StatusOK,
+	})
+}
+
+// ingestWeb handles the doi: and url: target schemes. It fetches the
+// document via internal/webfetch (DOI resolution or direct URL fetch —
+// both normalize to pipeline-parseable bytes) and funnels it through
+// the same pipeline the arxiv/blob paths use.
+//
+// Status mapping: invalid DOI/URL or unsupported upstream content type
+// -> 400; any other fetch failure (network, upstream 4xx/5xx, size cap)
+// -> 502; pipeline errors -> writePipelineError's mapping.
+func ingestWeb(
+	req *http.Request,
+	w http.ResponseWriter,
+	pool *pgxpool.Pool,
+	embedder *embeddings.Client,
+	chunker *chunking.Chunker,
+	web *webfetch.Client,
+	logger *logrus.Logger,
+	scheme, value, corpusID, documentID string,
+) {
+	var (
+		doc *webfetch.Doc
+		err error
+	)
+	switch scheme {
+	case "doi":
+		doc, err = web.FetchDOI(req.Context(), value)
+	default:
+		doc, err = web.FetchURL(req.Context(), value)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, webfetch.ErrInvalidDOI),
+			errors.Is(err, webfetch.ErrInvalidURL),
+			errors.Is(err, webfetch.ErrUnsupportedContent):
+			writeJSON(w, http.StatusBadRequest, errorBody(err.Error()))
+		default:
+			logger.WithError(err).WithFields(logrus.Fields{
+				"scheme": scheme, "value": value,
+			}).Warn("web fetch failed")
+			writeJSON(w, http.StatusBadGateway, errorBody(err.Error()))
+		}
+		return
+	}
+
+	var docID uuid.UUID
+	if documentID != "" {
+		docID, _ = uuid.Parse(documentID) // already validated in decodeIngestBody
+	} else {
+		docID = uuid.New()
+	}
+
+	var collectionIDs []uuid.UUID
+	if corpusID != "" {
+		if cid, err := uuid.Parse(corpusID); err == nil {
+			collectionIDs = []uuid.UUID{cid}
+		} else {
+			writeJSON(w, http.StatusBadRequest, errorBody("invalid corpus_id: "+err.Error()))
+			return
+		}
+	}
+
+	var ownerID *uuid.UUID
+	if v := os.Getenv("R2G_DEFAULT_OWNER_ID"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			ownerID = &id
+		}
+	}
+
+	res, err := ingestpipeline.Run(req.Context(), pool, embedder, chunker, ingestpipeline.Input{
+		DocumentID:    docID,
+		Title:         doc.Title,
+		ContentType:   doc.ContentType,
+		Body:          doc.Body,
+		Metadata:      doc.Metadata,
+		CollectionIDs: collectionIDs,
+		OwnerID:       ownerID,
+	}, logger)
+	if err != nil {
+		writePipelineError(w, logger, docID, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           true,
+		"target":       scheme + ":" + value,
+		"document_id":  docID.String(),
+		"title":        doc.Title,
+		"source_url":   doc.URL,
+		"source_kind":  doc.SourceKind,
+		"size":         len(doc.Body),
 		"chunks":       res.Chunks,
 		"total_tokens": res.TotalTokens,
 		"figure_count": res.Figures,

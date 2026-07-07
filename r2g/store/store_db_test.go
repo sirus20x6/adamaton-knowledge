@@ -66,6 +66,25 @@ CREATE TABLE deepresearch.chunks (
     document_id uuid NOT NULL
 );
 
+-- documents_relationships backs QueryGraphRelationships (the native
+-- GET /v3/graphs/{corpus}/relationships). Columns mirror the R2R DDL
+-- slice the store reads/writes (see PersistExtraction).
+CREATE TABLE deepresearch.documents_relationships (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_id   uuid,
+    subject     text NOT NULL,
+    predicate   text,
+    object      text NOT NULL,
+    description text,
+    subject_id  uuid,
+    object_id   uuid,
+    weight      double precision,
+    chunk_ids   uuid[],
+    metadata    jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE platform.corpora (
     id         uuid PRIMARY KEY,
     name       text NOT NULL,
