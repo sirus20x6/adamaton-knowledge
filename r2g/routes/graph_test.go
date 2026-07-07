@@ -1,8 +1,16 @@
 package routes
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+
+	"github.com/sirus20x6/adamaton-knowledge/r2g/store"
 )
 
 // TestGraphEnc_RoundTrip confirms the URL-safe base64 with stripped
@@ -13,10 +21,10 @@ func TestGraphEnc_RoundTrip(t *testing.T) {
 	cases := []string{
 		"Person",
 		"Albert Einstein",
-		"Café",                            // utf-8 mb
-		"O'Hare",                          // apostrophe
-		"a/b c+d=e",                       // chars that base64 cares about
-		"💀 ghoul",                        // multi-byte emoji
+		"Café",      // utf-8 mb
+		"O'Hare",    // apostrophe
+		"a/b c+d=e", // chars that base64 cares about
+		"💀 ghoul",   // multi-byte emoji
 		"longer name that fills four bytes",
 	}
 	for _, c := range cases {
@@ -229,5 +237,66 @@ func TestParseIntInRange(t *testing.T) {
 	}
 	if parseIntInRange("42", 10, 1, 100) != 42 {
 		t.Error("in-range should pass through")
+	}
+}
+
+// TestGraphV3Relationships_BadCorpus pins the input validation on the
+// native /v3/graphs/{corpus}/relationships: a non-UUID corpus is a 400
+// before any DB access (pool is nil here and must not be touched).
+func TestGraphV3Relationships_BadCorpus(t *testing.T) {
+	r := mux.NewRouter()
+	RegisterGraph(r, nil, quietLogger())
+	req := httptest.NewRequest(http.MethodGet, "/v3/graphs/not-a-uuid/relationships", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestGraphRelationshipPayload_Shape pins the R2R wire shape the
+// dashboard's fetchR2RRelationships parser reads: subject_id/object_id
+// as UUID strings when linked, null otherwise; chunk_ids as a string
+// array; metadata always an object.
+func TestGraphRelationshipPayload_Shape(t *testing.T) {
+	sid := uuid.New()
+	oid := uuid.New()
+	pid := uuid.New()
+	chunk := uuid.New()
+	full := store.GraphRelationship{
+		ID: uuid.New(), ParentID: &pid,
+		Subject: "A", Predicate: "REL", Object: "B",
+		Description: "d", SubjectID: &sid, ObjectID: &oid,
+		Weight: 0.5, ChunkIDs: []uuid.UUID{chunk},
+		Metadata: map[string]any{"k": "v"},
+	}
+	p := graphRelationshipPayload(full)
+	if p["subject_id"] != sid.String() || p["object_id"] != oid.String() {
+		t.Errorf("subject_id/object_id = %v/%v", p["subject_id"], p["object_id"])
+	}
+	if p["parent_id"] != pid.String() {
+		t.Errorf("parent_id = %v", p["parent_id"])
+	}
+	if got := p["chunk_ids"].([]string); len(got) != 1 || got[0] != chunk.String() {
+		t.Errorf("chunk_ids = %v", p["chunk_ids"])
+	}
+
+	// Sparse row: nils serialize to null, metadata coerces to {}.
+	sparse := store.GraphRelationship{ID: uuid.New(), Subject: "A", Object: "B"}
+	p2 := graphRelationshipPayload(sparse)
+	for _, k := range []string{"subject_id", "object_id", "parent_id", "description"} {
+		if p2[k] != nil {
+			t.Errorf("%s = %v, want nil", k, p2[k])
+		}
+	}
+	if p2["metadata"] == nil {
+		t.Error("metadata should coerce to an empty object, not null")
+	}
+	b, err := json.Marshal(p2)
+	if err != nil {
+		t.Fatalf("payload must be JSON-serializable: %v", err)
+	}
+	if !bytes.Contains(b, []byte(`"metadata":{}`)) {
+		t.Errorf("serialized payload = %s", b)
 	}
 }

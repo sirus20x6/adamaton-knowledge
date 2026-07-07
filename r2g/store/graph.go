@@ -971,6 +971,87 @@ func QueryGraphRAGEntities(ctx context.Context, pool *pgxpool.Pool, corpus uuid.
 	return out, rows.Err()
 }
 
+// GraphRelationship is one row of GET /v3/graphs/{corpus}/relationships
+// — the R2R-shaped raw relationship record (not the aggregated
+// EntityRelationship view above). Field names mirror R2R's
+// relationship response object so existing callers (dashboard
+// skills_search_graph) parse it unchanged.
+type GraphRelationship struct {
+	ID          uuid.UUID
+	ParentID    *uuid.UUID
+	Subject     string
+	Predicate   string
+	Object      string
+	Description string
+	SubjectID   *uuid.UUID
+	ObjectID    *uuid.UUID
+	Weight      float64
+	ChunkIDs    []uuid.UUID
+	Metadata    map[string]any
+}
+
+// QueryGraphRelationships lists raw documents_relationships rows for a
+// corpus, replacing R2R's GET /v3/graphs/{corpus}/relationships. A row
+// is in-corpus when its parent document either carries the corpus in
+// documents.collection_ids (the R2R attach path used by /v3/documents)
+// or is joined via platform.corpus_documents (the platform attach
+// path). Returns (rows, totalEntries, err); totalEntries counts all
+// matching rows ignoring limit/offset so callers can paginate.
+func QueryGraphRelationships(ctx context.Context, pool *pgxpool.Pool, corpus uuid.UUID, limit, offset int) ([]GraphRelationship, int, error) {
+	schema, err := r2rSchema()
+	if err != nil {
+		return nil, 0, err
+	}
+	q := fmt.Sprintf(`
+		SELECT r.id, r.parent_id, r.subject,
+		       COALESCE(r.predicate, '') AS predicate,
+		       r.object,
+		       COALESCE(r.description, '') AS description,
+		       r.subject_id, r.object_id,
+		       COALESCE(r.weight, 0) AS weight,
+		       r.chunk_ids, r.metadata,
+		       COUNT(*) OVER () AS total_entries
+		FROM %s.documents_relationships r
+		WHERE r.parent_id IS NOT NULL
+		  AND (
+		        EXISTS (SELECT 1 FROM %s.documents d
+		                 WHERE d.id = r.parent_id
+		                   AND $1 = ANY(d.collection_ids))
+		     OR EXISTS (SELECT 1 FROM platform.corpus_documents cd
+		                 WHERE cd.document_id = r.parent_id
+		                   AND cd.corpus_id = $1)
+		      )
+		ORDER BY weight DESC, r.created_at DESC NULLS LAST, r.id ASC
+		LIMIT $2 OFFSET $3
+	`, schema, schema)
+	rows, err := pool.Query(ctx, q, corpus, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query graph relationships: %w", err)
+	}
+	defer rows.Close()
+	out := []GraphRelationship{}
+	total := 0
+	for rows.Next() {
+		var (
+			r       GraphRelationship
+			metaRaw []byte
+		)
+		if err := rows.Scan(&r.ID, &r.ParentID, &r.Subject, &r.Predicate,
+			&r.Object, &r.Description, &r.SubjectID, &r.ObjectID,
+			&r.Weight, &r.ChunkIDs, &metaRaw, &total); err != nil {
+			return nil, 0, fmt.Errorf("scan graph relationship: %w", err)
+		}
+		if len(metaRaw) > 0 {
+			_ = json.Unmarshal(metaRaw, &r.Metadata)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("query graph relationships: %w", err)
+	}
+	return out, total, nil
+}
+
 // upperASCII uppercases a..z. Predicates extracted by the LLM are ASCII
 // identifiers; we don't need locale-aware unicode upcasing here.
 func upperASCII(s string) string {

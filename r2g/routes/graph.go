@@ -29,14 +29,14 @@ import (
 
 // Real-data tunables. Matched to the Python module-level constants.
 const (
-	graphDefaultTopCategories      = 24
-	graphDefaultEntitiesPerCat     = 1000
-	graphDefaultRelsLimit          = 5000
-	graphDefaultNeighbourLimit     = 50
-	graphDefaultSourceLimit        = 25
-	graphDefaultMemberLimit        = 1000
-	graphFallbackNodeCount         = 50
-	graphFallbackClusterCount      = 4
+	graphDefaultTopCategories  = 24
+	graphDefaultEntitiesPerCat = 1000
+	graphDefaultRelsLimit      = 5000
+	graphDefaultNeighbourLimit = 50
+	graphDefaultSourceLimit    = 25
+	graphDefaultMemberLimit    = 1000
+	graphFallbackNodeCount     = 50
+	graphFallbackClusterCount  = 4
 )
 
 // taxonomicPredicatesByCategory maps a parent's category to the
@@ -68,6 +68,13 @@ func RegisterGraph(r *mux.Router, pool *pgxpool.Pool, logger *logrus.Logger) {
 		graphRAGCommunitiesHandler(pool, logger)).Methods(http.MethodGet)
 	r.HandleFunc("/platform/graph/graphrag/{corpus_id}/entities",
 		graphRAGEntitiesHandler(pool, logger)).Methods(http.MethodGet)
+
+	// R2R-compat surface: GET /v3/graphs/{corpus}/relationships used to
+	// be a passthrough to the Python R2R service (SURFACE.md called it
+	// deferred); it now reads the same documents_relationships table the
+	// extract pipeline writes.
+	r.HandleFunc("/v3/graphs/{corpus_id}/relationships",
+		graphV3RelationshipsHandler(pool, logger)).Methods(http.MethodGet)
 
 	// Hierarchy endpoints.
 	r.HandleFunc("/platform/graph/communities/{corpus_id}",
@@ -281,6 +288,86 @@ func normaliseCorpusID(s string) string {
 // ─────────────────────────────────────────────────────────────────────────
 // Handlers
 // ─────────────────────────────────────────────────────────────────────────
+
+// graphV3RelationshipsHandler implements GET /v3/graphs/{corpus}/relationships
+// against the r2g store, replacing the R2R passthrough. Response shape
+// mirrors R2R's WrappedRelationshipsResponse: {"results": [...],
+// "total_entries": N}. Each result carries id/subject/subject_id/
+// predicate/object/object_id/description/weight/chunk_ids/parent_id/
+// metadata — the exact fields the dashboard's fetchR2RRelationships
+// parser reads.
+func graphV3RelationshipsHandler(pool *pgxpool.Pool, logger *logrus.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		corpus, err := uuid.Parse(mux.Vars(req)["corpus_id"])
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody("corpus must be a UUID"))
+			return
+		}
+		q := req.URL.Query()
+		limit := parseIntInRange(q.Get("limit"), 100, 1, 5000)
+		offset := parseIntInRange(q.Get("offset"), 0, 0, 1<<30)
+
+		rows, total, err := store.QueryGraphRelationships(req.Context(), pool, corpus, limit, offset)
+		if err != nil {
+			logger.WithError(err).WithField("corpus", corpus).Warn("graph: v3 relationships query failed")
+			writeJSON(w, http.StatusInternalServerError, errorBody("internal error"))
+			return
+		}
+		results := make([]map[string]any, 0, len(rows))
+		for _, r := range rows {
+			results = append(results, graphRelationshipPayload(r))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"results":       results,
+			"total_entries": total,
+		})
+	}
+}
+
+// graphRelationshipPayload renders one relationship row in R2R's wire
+// shape. Nullable UUIDs serialize as null (the dashboard's parser
+// treats null/absent as "" and skips the edge).
+func graphRelationshipPayload(r store.GraphRelationship) map[string]any {
+	var (
+		subjectID any = nil
+		objectID  any = nil
+		parentID  any = nil
+		desc      any = nil
+	)
+	if r.SubjectID != nil {
+		subjectID = r.SubjectID.String()
+	}
+	if r.ObjectID != nil {
+		objectID = r.ObjectID.String()
+	}
+	if r.ParentID != nil {
+		parentID = r.ParentID.String()
+	}
+	if r.Description != "" {
+		desc = r.Description
+	}
+	chunkIDs := make([]string, 0, len(r.ChunkIDs))
+	for _, c := range r.ChunkIDs {
+		chunkIDs = append(chunkIDs, c.String())
+	}
+	metadata := r.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	return map[string]any{
+		"id":          r.ID.String(),
+		"subject":     r.Subject,
+		"subject_id":  subjectID,
+		"predicate":   r.Predicate,
+		"object":      r.Object,
+		"object_id":   objectID,
+		"description": desc,
+		"weight":      r.Weight,
+		"chunk_ids":   chunkIDs,
+		"parent_id":   parentID,
+		"metadata":    metadata,
+	}
+}
 
 func graphCommunitiesHandler(pool *pgxpool.Pool, logger *logrus.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -807,16 +894,16 @@ func entityNodeDetail(req *http.Request, pool *pgxpool.Pool, nodeID, name, corpu
 		}
 	}
 	out := map[string]any{
-		"id":           nodeID,
-		"label":        name,
-		"level":        1,
-		"size":         scaleSize(mentionsOrOne(meta), 100, 12, 60),
-		"description":  description,
-		"mentions":     mentions,
-		"children":     []any{},
-		"neighbours":   neighbours,
-		"sources":      entitySourcesPayload(sources),
-		"temporal":     nil, // entity_temporal isn't ported in this slice.
+		"id":          nodeID,
+		"label":       name,
+		"level":       1,
+		"size":        scaleSize(mentionsOrOne(meta), 100, 12, 60),
+		"description": description,
+		"mentions":    mentions,
+		"children":    []any{},
+		"neighbours":  neighbours,
+		"sources":     entitySourcesPayload(sources),
+		"temporal":    nil, // entity_temporal isn't ported in this slice.
 	}
 	if cat != "" {
 		out["category"] = cat
@@ -1156,4 +1243,3 @@ func parseIntInRange(s string, def, lo, hi int) int {
 	}
 	return n
 }
-
